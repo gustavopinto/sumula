@@ -66,4 +66,4 @@ See `.env.example` for all variables. Main ones:
 
 ## License
 
-See repository for license information.
+MIT License. See [LICENSE](LICENSE).
