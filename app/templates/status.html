@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}Status do Job — FAPESP{% endblock %}
+
+{% block content %}
+<p class="section-title">Status do Processamento</p>
+
+<table style="width:100%; border-collapse:collapse; margin-bottom:1.5rem; font-size:0.9rem;">
+  <tr>
+    <td style="padding:0.4rem 0.5rem; font-weight:700; width:140px;">Job ID</td>
+    <td style="padding:0.4rem 0.5rem; font-family:monospace; font-size:0.85rem;">{{ job.id }}</td>
+  </tr>
+  <tr style="background:#f9f9f9;">
+    <td style="padding:0.4rem 0.5rem; font-weight:700;">Status</td>
+    <td style="padding:0.4rem 0.5rem;">
+      <span class="badge badge-{{ job.status.value.lower() }}">{{ job.status.value }}</span>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:0.4rem 0.5rem; font-weight:700;">Criado em</td>
+    <td style="padding:0.4rem 0.5rem;">{{ job.created_at.strftime('%d/%m/%Y %H:%M:%S') if job.created_at else '—' }}</td>
+  </tr>
+  <tr style="background:#f9f9f9;">
+    <td style="padding:0.4rem 0.5rem; font-weight:700;">Atualizado</td>
+    <td style="padding:0.4rem 0.5rem;">{{ job.updated_at.strftime('%d/%m/%Y %H:%M:%S') if job.updated_at else '—' }}</td>
+  </tr>
+</table>
+
+{% if job.status.value == 'DONE' %}
+<div class="alert alert-success">
+  Processamento concluído! Verifique seu e-mail — a Súmula Curricular foi enviada como anexo <code>sumula.md</code>.
+</div>
+{% elif job.status.value == 'ERROR' %}
+<div class="alert alert-error">
+  <strong>Erro no processamento.</strong>
+  {% if job.error_code %}<br>Código: <code>{{ job.error_code }}</code>{% endif %}
+  {% if job.error_message %}<br>{{ job.error_message }}{% endif %}
+  <br><br>
+  <form method="POST" action="/api/jobs/{{ job.id }}/retry">
+    <button type="submit" style="background:#c00;">Tentar novamente</button>
+  </form>
+</div>
+{% elif job.status.value == 'RECEIVED' %}
+<div class="alert alert-info">
+  Job recebido e aguardando processamento na fila. Atualize a página para ver o progresso.
+</div>
+{% else %}
+<div class="alert alert-info">
+  Processamento em andamento… Atualize a página para ver atualizações.
+</div>
+{% endif %}
+
+<p class="section-title">Etapas</p>
+
+{% set steps = ['RECEIVED','EXTRACTING','CURATING','ENRICHING','GENERATING','VALIDATING','SENDING_EMAIL','DONE'] %}
+<div style="display:flex; gap:0.35rem; flex-wrap:wrap; margin-bottom:1.5rem;">
+{% for step in steps %}
+  {% set current = job.status.value %}
+  {% set step_idx = steps.index(step) %}
+  {% set current_idx = steps.index(current) if current in steps else 0 %}
+  {% if step_idx < current_idx %}
+    <span class="badge badge-done">✓ {{ step }}</span>
+  {% elif step_idx == current_idx %}
+    <span class="badge badge-{{ current.lower() }}">► {{ step }}</span>
+  {% else %}
+    <span class="badge" style="background:#eee;color:#999;">{{ step }}</span>
+  {% endif %}
+{% endfor %}
+</div>
+
+<p class="section-title">Registro de Eventos</p>
+
+{% if events %}
+<ul class="events-list">
+  {% for event in events %}
+  <li>
+    <span class="ev-step">{{ event.step }}</span>
+    <span class="ev-time">{{ event.created_at.strftime('%H:%M:%S') if event.created_at else '' }}</span>
+    <span class="ev-msg">{{ event.message }}</span>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p style="color:#999; font-size:0.9rem;">Nenhum evento registrado ainda.</p>
+{% endif %}
+
+<div style="margin-top:1.5rem; font-size:0.85rem; color:#666;">
+  <a href="/">&larr; Nova Súmula</a>
+  &nbsp;|&nbsp;
+  <a href="/api/jobs/{{ job.id }}/events">Eventos (JSON)</a>
+</div>
+{% endblock %}

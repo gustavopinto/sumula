@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}Gerar Súmula — FAPESP{% endblock %}
+
+{% block content %}
+<p class="alert alert-info">
+  Preencha os campos abaixo com suas fontes acadêmicas. O processamento é assíncrono —
+  você receberá a Súmula em Markdown por e-mail.
+</p>
+
+<form method="POST" action="/submit" enctype="multipart/form-data">
+
+  <p class="section-title">Identificação</p>
+
+  <div class="field">
+    <label for="email">E-mail <span style="color:#c00">*</span></label>
+    <input type="email" id="email" name="email" required placeholder="seu@email.com" autocomplete="email">
+    <p class="hint">O arquivo sumula.md será enviado para este endereço.</p>
+  </div>
+
+  <p class="section-title">Arquivos</p>
+
+  <div class="field">
+    <label for="files">Upload de arquivos <span class="optional">(opcional)</span></label>
+    <input type="file" id="files" name="files" multiple
+           accept=".pdf,.xlsx,.xls,.txt,.md">
+    <p class="hint">Tipos aceitos: PDF, XLSX, XLS, TXT, MD. Máximo {{ max_files }} arquivos de até {{ max_mb }} MB cada.</p>
+  </div>
+
+  <p class="section-title">Links</p>
+
+  <div class="field">
+    <label for="lattes_url">Currículo Lattes <span class="optional">(opcional)</span></label>
+    <input type="url" id="lattes_url" name="lattes_url" placeholder="https://lattes.cnpq.br/...">
+  </div>
+
+  <div class="field">
+    <label for="orcid_url">ORCID <span class="optional">(opcional)</span></label>
+    <input type="url" id="orcid_url" name="orcid_url" placeholder="https://orcid.org/0000-0000-0000-0000">
+  </div>
+
+  <div class="field">
+    <label for="dblp_url">DBLP <span class="optional">(opcional)</span></label>
+    <input type="url" id="dblp_url" name="dblp_url" placeholder="https://dblp.org/pid/...">
+  </div>
+
+  <div class="field">
+    <label for="scholar_url">Google Scholar <span class="optional">(opcional)</span></label>
+    <input type="url" id="scholar_url" name="scholar_url" placeholder="https://scholar.google.com/citations?user=...">
+    <p class="hint">Se o acesso ao Scholar for limitado, use o campo BibTeX abaixo.</p>
+  </div>
+
+  <div class="field">
+    <label for="wos_url">Web of Science <span class="optional">(opcional)</span></label>
+    <input type="url" id="wos_url" name="wos_url" placeholder="https://www.webofscience.com/...">
+  </div>
+
+  <div class="field">
+    <label for="site_url">Site pessoal / institucional <span class="optional">(opcional)</span></label>
+    <input type="url" id="site_url" name="site_url" placeholder="https://...">
+  </div>
+
+  <p class="section-title">Publicações (BibTeX)</p>
+
+  <div class="field">
+    <label for="bibtex">BibTeX <span class="optional">(opcional)</span></label>
+    <textarea id="bibtex" name="bibtex" rows="8"
+              placeholder="@article{sobrenome2024,...}&#10;@inproceedings{...}"></textarea>
+    <p class="hint">Cole aqui as referências no formato BibTeX exportadas do Scholar, DBLP, etc.</p>
+  </div>
+
+  <p class="section-title">Informações adicionais</p>
+
+  <div class="field">
+    <label for="free_text">Texto livre <span class="optional">(opcional)</span></label>
+    <textarea id="free_text" name="free_text" rows="5"
+              placeholder="Informações adicionais, correções, destaques para Contribuições à Ciência..."></textarea>
+    <p class="hint">Use para incluir informações não presentes nas fontes acima, correções ou preferências de formatação.</p>
+  </div>
+
+  <button type="submit">Gerar Súmula Curricular</button>
+</form>
+{% endblock %}
