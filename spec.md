@@ -379,7 +379,7 @@ Env vars:
 
 ## 17. Critérios de aceite
 
-1. Submeter Lattes PDF e receber e mail com `sumula.md` com as seis seções ([FAPESP][1])
+1. Submeter URL Lattes e receber e-mail com `sumula.md` com as seis seções ([FAPESP][1])
 2. Submeter Lattes XLSX e receber e mail com `sumula.md` com as seis seções ([FAPESP][1])
 3. Seção vazia vira “NADA A DECLARAR” ([FAPESP][1])
 4. 6.a 6.b 6.c presentes em Outras Informações Relevantes ([FAPESP][1])

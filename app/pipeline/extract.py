@@ -1,8 +1,7 @@
 """Extraction pipeline step.
 
 Routes each source to its dedicated extractor:
-  - Lattes PDF/XML upload → extractors.lattes
-  - Other PDFs           → extractors.pdf (generic)
+  - PDFs                  → extractors.pdf (generic)
   - XLSX                 → extractors.xlsx
   - TXT/MD               → read directly
   - lattes_url           → extractors.lattes.fetch_lattes_url
@@ -21,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.extractors.bibtex import parse_bibtex
 from app.extractors.dblp import fetch_dblp
-from app.extractors.lattes import fetch_lattes_url, lattes_pdf_to_text
+from app.extractors.lattes import fetch_lattes_url
 from app.extractors.orcid import fetch_orcid
 from app.extractors.pdf import extract_pdf
 from app.extractors.scholar import fetch_scholar
@@ -45,14 +44,6 @@ _URL_EXTRACTORS = {
     "site_url":    (fetch_url,         "Site pessoal"),
 }
 
-# Heuristic: if filename contains these keywords, treat as Lattes PDF
-_LATTES_HINTS = ("lattes", "curriculo", "currículo", "cnpq")
-
-
-def _is_lattes_pdf(name: str) -> bool:
-    return any(hint in name.lower() for hint in _LATTES_HINTS)
-
-
 async def run(job_id: str, session: AsyncSession) -> None:
     job = await get_job(session, job_id)
     manifest = load_manifest(job)
@@ -69,13 +60,9 @@ async def run(job_id: str, session: AsyncSession) -> None:
 
         try:
             if ext == ".pdf":
-                if _is_lattes_pdf(name):
-                    text = lattes_pdf_to_text(path, source_id=source_id)
-                    await add_event(session, job_id, "EXTRACTING", f"Lattes PDF extraído: {name}")
-                else:
-                    pages = extract_pdf(path)
-                    text = _pages_to_text(pages, source_id)
-                    await add_event(session, job_id, "EXTRACTING", f"PDF extraído: {name} ({len(pages)} páginas)")
+                pages = extract_pdf(path)
+                text = _pages_to_text(pages, source_id)
+                await add_event(session, job_id, "EXTRACTING", f"PDF extraído: {name} ({len(pages)} páginas)")
 
             elif ext in {".xlsx", ".xls"}:
                 rows = extract_xlsx(path)

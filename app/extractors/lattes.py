@@ -1,97 +1,13 @@
-"""Lattes extractor — PDF via PyMuPDF with Lattes-aware section detection.
+"""Lattes extractor — Lattes sempre via URL (lattes.cnpq.br).
 
-Supports:
-  - PDF upload (primary): extract_lattes_pdf(path)
-  - Lattes URL (fallback): fetch_lattes_url(url) via trafilatura
+  - fetch_lattes_url(url) via trafilatura
+  - fetch_lattes_url_playwright(url) para contornar reCAPTCHA
 """
 import logging
-import re
-from pathlib import Path
 
 from app.extractors._retry import with_retries
 
 logger = logging.getLogger(__name__)
-
-# Lattes section headers (verbatim in the PDF)
-_SECTION_HEADERS = [
-    "Dados Pessoais",
-    "Formação Acadêmica/Titulação",
-    "Formação Complementar",
-    "Atuação Profissional",
-    "Linhas de Pesquisa",
-    "Projetos de Pesquisa",
-    "Projetos de Extensão",
-    "Projetos de Desenvolvimento Tecnológico",
-    "Produção Bibliográfica",
-    "Produção Técnica",
-    "Orientações e Supervisões",
-    "Prêmios e Títulos",
-    "Apresentações de Trabalho",
-    "Participação em Bancas",
-    "Participação em Eventos",
-    "Organização de Eventos",
-    "Cursos Ministrados",
-    "Outras Informações",
-    "Idiomas",
-    "Financiamentos",
-]
-
-_HEADER_RE = re.compile(
-    r"^(" + "|".join(re.escape(h) for h in _SECTION_HEADERS) + r")\s*$",
-    re.IGNORECASE | re.MULTILINE,
-)
-
-
-def extract_lattes_pdf(path: str | Path) -> list[dict]:
-    """
-    Extract text from a Lattes PDF, grouping content by Lattes sections.
-    Returns list of {section: str, page: int, text: str}.
-    """
-    import fitz  # PyMuPDF
-
-    results = []
-    doc = fitz.open(str(path))
-    try:
-        current_section = "Dados Gerais"
-        buffer_lines: list[str] = []
-        first_page = 1
-
-        def _flush(section: str, page: int, lines: list[str]) -> None:
-            text = "\n".join(lines).strip()
-            if text:
-                results.append({"section": section, "page": page, "text": text})
-
-        for page_num, page in enumerate(doc, start=1):
-            raw = page.get_text("text")
-            for line in raw.splitlines():
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                if _HEADER_RE.match(stripped):
-                    _flush(current_section, first_page, buffer_lines)
-                    current_section = stripped
-                    buffer_lines = []
-                    first_page = page_num
-                else:
-                    buffer_lines.append(stripped)
-
-        _flush(current_section, first_page, buffer_lines)
-    finally:
-        doc.close()
-
-    return results
-
-
-def lattes_pdf_to_text(path: str | Path, source_id: str = "lattes_pdf") -> str:
-    """Convert Lattes PDF to structured plain text."""
-    sections = extract_lattes_pdf(path)
-    if not sections:
-        return ""
-    parts = [f"SOURCE: {source_id}", f"TYPE: lattes_pdf"]
-    for sec in sections:
-        parts.append(f"\n[LATTES:{sec['section'].upper().replace(' ', '_')}]")
-        parts.append(sec["text"])
-    return "\n".join(parts)
 
 
 async def fetch_lattes_url(url: str) -> str:
@@ -103,8 +19,6 @@ async def fetch_lattes_url(url: str) -> str:
 
     Current behavior: fetches whatever the server returns (may be the CAPTCHA
     challenge page). Use fetch_lattes_url_playwright() for full CAPTCHA bypass.
-
-    NOTE: For reliable Lattes data, prefer PDF/XML upload over URL.
     """
     import ssl
     import httpx
@@ -139,19 +53,22 @@ async def fetch_lattes_url(url: str) -> str:
     return (
         f"SOURCE: lattes_url\nURL: {url}\n"
         f"[Lattes URL não acessível — SSL legado + reCAPTCHA detectado.\n"
-        f" Use upload de PDF/XML ou fetch_lattes_url_playwright() com Playwright.]"
+        f" Use fetch_lattes_url_playwright() com Playwright.]"
     )
 
 
 async def fetch_lattes_url_playwright(url: str) -> str:
-    """Fetch Lattes via Playwright (headless Chromium), bypassing reCAPTCHA wait.
+    """Fetch Lattes via Playwright (headless Chromium) com bypass do reCAPTCHA.
 
-    Requires: pip install playwright && playwright install chromium
+    Requer: pip install playwright playwright-stealth && playwright install chromium
 
-    Strategy:
-      - Abre o perfil em headless Chromium.
-      - Aguarda o reCAPTCHA ser resolvido automaticamente (invisible reCAPTCHA).
-      - Extrai o HTML resultante com trafilatura.
+    Estratégia:
+      1. Carrega a página com modo stealth (remove sinais de automação).
+      2. Aguarda o widget reCAPTCHA v2 carregar.
+      3. Clica no checkbox — Google pode aprovar automaticamente dependendo do
+         score de confiança da sessão (fingerprint limpo via stealth).
+      4. Se aprovado, clica em "Visualizar" e extrai o perfil com trafilatura.
+      5. Se o challenge visual aparecer (imagens), retorna fallback gracioso.
     """
     try:
         from playwright.async_api import async_playwright
@@ -162,27 +79,79 @@ async def fetch_lattes_url_playwright(url: str) -> str:
             f"[Playwright não instalado. Execute: pip install playwright && playwright install chromium]"
         )
 
+    import asyncio
+
     async def _attempt():
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             ctx = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                user_agent=(
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
                 ignore_https_errors=True,
+                viewport={"width": 1280, "height": 720},
+                locale="pt-BR",
             )
             page = await ctx.new_page()
-            await page.goto(url, wait_until="networkidle", timeout=30000)
-            # Wait for profile content (not CAPTCHA) to appear
-            await page.wait_for_selector("body", timeout=15000)
+
+            # Stealth: remove navigator.webdriver e outros sinais de automação
+            try:
+                from playwright_stealth import Stealth
+                await Stealth().apply_stealth_async(page)
+            except ImportError:
+                await page.add_init_script(
+                    "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
+                )
+
+            await page.goto(url, wait_until="networkidle", timeout=40000)
+            await asyncio.sleep(2)
+
+            # ── Tenta aprovar reCAPTCHA via clique ────────────────────────────
+            anchor_frame = next(
+                (f for f in page.frames if "recaptcha/api2/anchor" in f.url), None
+            )
+            if anchor_frame:
+                try:
+                    cb = await anchor_frame.wait_for_selector(
+                        ".recaptcha-checkbox", timeout=5000
+                    )
+                    await cb.click()
+                    await asyncio.sleep(4)
+                    checked = await anchor_frame.query_selector(
+                        ".recaptcha-checkbox-checked"
+                    )
+                except Exception:
+                    checked = None
+
+                if not checked:
+                    await browser.close()
+                    raise ValueError(
+                        "Lattes: reCAPTCHA não aprovado automaticamente "
+                        "(challenge visual bloqueou)"
+                    )
+
+            # ── Submete o formulário ───────────────────────────────────────────
+            submit = await page.query_selector("#submitBtn:not([disabled])")
+            if submit:
+                await submit.click()
+                await page.wait_for_load_state("networkidle", timeout=30000)
+
             html = await page.content()
             await browser.close()
 
+        # Se ainda está na página do captcha, não houve conteúdo
+        if "tokenCaptchar" in html:
+            raise ValueError("Lattes: ainda na página do CAPTCHA após submissão")
+
         text = trafilatura.extract(html, include_tables=True, no_fallback=False) or ""
         if not text.strip():
-            raise ValueError("Lattes via Playwright: ainda sem conteúdo (CAPTCHA não resolvido?)")
+            raise ValueError("Lattes via Playwright: conteúdo vazio após CAPTCHA")
         return f"SOURCE: lattes_url\nURL: {url}\nTYPE: playwright\n\n{text}"
 
     result = await with_retries(_attempt, source="lattes_playwright")
     return result or (
         f"SOURCE: lattes_url\nURL: {url}\n"
-        f"[Lattes Playwright: falhou após 3 tentativas]"
+        f"[Lattes Playwright: reCAPTCHA não resolvido após 3 tentativas]"
     )

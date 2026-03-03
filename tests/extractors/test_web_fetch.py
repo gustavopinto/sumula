@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, patch
 
 from app.extractors.web_fetch import _fetch_once, fetch_url
 
-PUBLIC_URL = "https://example.com"         # RFC-standard always-available URL
-REAL_SITE_URL = "https://gustavopinto.org"  # Personal site (site pessoal example)
+PUBLIC_URL = "https://gustavopinto.org"     # Personal site (site pessoal example)
+REAL_SITE_URL = "https://dblp.org"          # Always-available, verified SSL
 
 
 # ── Unit: retry integration ────────────────────────────────────────────────────
@@ -47,17 +47,16 @@ async def test_fetch_url_retries_then_succeeds():
 
 @pytest.mark.network
 @pytest.mark.asyncio
-async def test_fetch_once_example_com():
-    """example.com is always up per RFC; should return non-empty text."""
+async def test_fetch_once_real_site():
+    """Fetch a known public site; should return non-empty text."""
     text = await _fetch_once(PUBLIC_URL)
     assert isinstance(text, str)
     assert len(text) > 10
-    assert "example" in text.lower() or "domain" in text.lower()
 
 
 @pytest.mark.network
 @pytest.mark.asyncio
-async def test_fetch_url_example_com():
+async def test_fetch_url_real_site():
     result = await fetch_url(PUBLIC_URL)
     assert isinstance(result, str)
     assert len(result) > 10

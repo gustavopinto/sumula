@@ -172,14 +172,7 @@ async def submit(
 
     # Enqueue job in ARQ
     try:
-        from urllib.parse import urlparse
-        parsed = urlparse(settings.redis_url)
-        redis_settings = RedisSettings(
-            host=parsed.hostname or "localhost",
-            port=parsed.port or 6379,
-            password=parsed.password or None,
-            database=int(parsed.path.lstrip("/") or 0),
-        )
+        redis_settings = RedisSettings.from_dsn(settings.redis_url)
         pool = await create_pool(redis_settings)
         await pool.enqueue_job("process_job", job_id)
         await pool.aclose()

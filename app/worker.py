@@ -92,23 +92,11 @@ async def on_shutdown(ctx: dict) -> None:
     logger.info("Worker shutdown, DB pool disposed")
 
 
-def _parse_redis_settings(url: str) -> RedisSettings:
-    """Parse redis:// URL into ARQ RedisSettings."""
-    from urllib.parse import urlparse
-    parsed = urlparse(url)
-    return RedisSettings(
-        host=parsed.hostname or "localhost",
-        port=parsed.port or 6379,
-        password=parsed.password or None,
-        database=int(parsed.path.lstrip("/") or 0),
-    )
-
-
 class WorkerSettings:
     functions = [process_job]
     on_startup = on_startup
     on_shutdown = on_shutdown
-    redis_settings = _parse_redis_settings(settings.redis_url)
+    redis_settings = RedisSettings.from_dsn(settings.redis_url)
     max_jobs = 5
     job_timeout = 600  # 10 minutes per job
     keep_result = 3600  # Keep results 1 hour

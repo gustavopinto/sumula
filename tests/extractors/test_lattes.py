@@ -1,169 +1,96 @@
 """Tests for the Lattes extractor.
 
-Lattes URL (https://lattes.cnpq.br/...) has two access barriers:
-  1. Legacy SSL/TLS configuration (SSLv3 alert) on CNPq servers.
-  2. reCAPTCHA on the profile page.
+Lattes é sempre via URL (https://lattes.cnpq.br/...). Dois obstáculos de acesso:
+  1. SSL/TLS legado nos servidores CNPq.
+  2. reCAPTCHA v2 (checkbox) na página do perfil.
 
-Strategy:
-  - PDF extraction: tested with a synthetic in-memory PDF (no network).
-  - URL extraction: tested for graceful failure (no exception raised).
-  - Playwright path: documented but not run in CI (requires browser install).
+Estratégia nos testes:
+  - URL httpx: testa falha graciosa (retorna fallback, nunca levanta exceção).
+  - Playwright: clica no checkbox do reCAPTCHA; se Google aprovar
+    automaticamente pelo score de stealth, obtém o perfil real.
+    Se challenge visual bloquear, o teste é marcado como skip.
+
+Perfil real: https://lattes.cnpq.br/1631238943341152
 """
 import pytest
 
-from app.extractors.lattes import (
-    _HEADER_RE,
-    _is_lattes_pdf,
-    extract_lattes_pdf,
-    fetch_lattes_url,
-    lattes_pdf_to_text,
-)
+from app.extractors.lattes import fetch_lattes_url, fetch_lattes_url_playwright
 
 LATTES_URL = "https://lattes.cnpq.br/1631238943341152"
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
-
-def _make_lattes_pdf(tmp_path, content: str) -> str:
-    """Create a minimal PDF with the given text content via PyMuPDF."""
-    import fitz
-
-    doc = fitz.open()
-    page = doc.new_page()
-    page.insert_text((50, 50), content)
-    path = tmp_path / "lattes_test.pdf"
-    doc.save(str(path))
-    doc.close()
-    return str(path)
+# Palavras que indicam que o acesso foi bloqueado pelo reCAPTCHA
+_CAPTCHA_SIGNALS = ("reCAPTCHA", "challenge", "tokenCaptchar", "não resolvido")
 
 
-FAKE_LATTES_TEXT = """\
-Dados Pessoais
-Nome: Armando Solar-Lezama
-Nascimento: 01/01/1980
-
-Formação Acadêmica/Titulação
-Doutorado em Ciência da Computação
-Massachusetts Institute of Technology, 2008
-
-Atuação Profissional
-Professor Titular
-MIT CSAIL, 2008 - atual
-
-Produção Bibliográfica
-Sketch-based program synthesis
-PLDI 2006
-
-Prêmios e Títulos
-ACM SIGPLAN Distinguished Paper Award, 2010
-"""
+def _is_captcha_blocked(result: str) -> bool:
+    return any(s.lower() in result.lower() for s in _CAPTCHA_SIGNALS)
 
 
-# ── Unit: section header regex ─────────────────────────────────────────────────
-
-def test_header_re_matches_known_sections():
-    assert _HEADER_RE.search("Dados Pessoais")
-    assert _HEADER_RE.search("Formação Acadêmica/Titulação")
-    assert _HEADER_RE.search("Produção Bibliográfica")
-    assert _HEADER_RE.search("Prêmios e Títulos")
-    assert _HEADER_RE.search("Atuação Profissional")
-
-
-def test_header_re_no_false_positives():
-    assert not _HEADER_RE.search("Universidade de São Paulo")
-    assert not _HEADER_RE.search("2024")
-    assert not _HEADER_RE.search("doi:10.1145/12345")
-
-
-# ── Unit: Lattes PDF filename detection ────────────────────────────────────────
-
-def test_is_lattes_pdf_detects_lattes_filenames():
-    assert _is_lattes_pdf("curriculo.pdf")
-    assert _is_lattes_pdf("Lattes_João_Silva.pdf")
-    assert _is_lattes_pdf("cnpq_export.pdf")
-    assert _is_lattes_pdf("currículo_lattes.pdf")
-
-
-def test_is_lattes_pdf_ignores_generic_pdfs():
-    assert not _is_lattes_pdf("paper_2024.pdf")
-    assert not _is_lattes_pdf("thesis.pdf")
-    assert not _is_lattes_pdf("artigo.pdf")
-
-
-# ── PDF extraction ─────────────────────────────────────────────────────────────
-
-def test_extract_lattes_pdf_returns_sections(tmp_path):
-    path = _make_lattes_pdf(tmp_path, FAKE_LATTES_TEXT)
-    sections = extract_lattes_pdf(path)
-    assert isinstance(sections, list)
-    assert len(sections) > 0
-    section_names = {s["section"] for s in sections}
-    # At least one known Lattes section should be detected
-    assert section_names & {
-        "Dados Pessoais",
-        "Formação Acadêmica/Titulação",
-        "Produção Bibliográfica",
-        "Atuação Profissional",
-        "Prêmios e Títulos",
-    }
-
-
-def test_extract_lattes_pdf_each_section_has_text(tmp_path):
-    path = _make_lattes_pdf(tmp_path, FAKE_LATTES_TEXT)
-    sections = extract_lattes_pdf(path)
-    for sec in sections:
-        assert sec["text"].strip(), f"Seção '{sec['section']}' está vazia"
-        assert isinstance(sec["page"], int)
-        assert sec["page"] >= 1
-
-
-def test_lattes_pdf_to_text_format(tmp_path):
-    path = _make_lattes_pdf(tmp_path, FAKE_LATTES_TEXT)
-    text = lattes_pdf_to_text(path, source_id="lattes_test")
-    assert "SOURCE: lattes_test" in text
-    assert "TYPE: lattes_pdf" in text
-    assert "[LATTES:" in text
-    assert len(text) > 50
-
-
-def test_extract_lattes_pdf_empty_pdf(tmp_path):
-    import fitz
-    doc = fitz.open()
-    doc.new_page()  # blank page
-    path = tmp_path / "blank.pdf"
-    doc.save(str(path))
-    doc.close()
-    sections = extract_lattes_pdf(str(path))
-    assert isinstance(sections, list)
-    # Blank PDF → no content sections
-    assert all(not s["text"].strip() for s in sections) or len(sections) == 0
-
-
-# ── URL extraction: graceful failure ──────────────────────────────────────────
+# ── httpx: falha graciosa ──────────────────────────────────────────────────────
 
 @pytest.mark.network
 @pytest.mark.asyncio
 async def test_fetch_lattes_url_does_not_raise():
-    """
-    Lattes URL has legacy SSL + reCAPTCHA.
-    The extractor must NEVER raise — it returns a fallback string.
-    For real data, use PDF upload or fetch_lattes_url_playwright().
-    """
+    """httpx nunca deve levantar exceção — retorna string com fallback."""
     result = await fetch_lattes_url(LATTES_URL)
     assert isinstance(result, str)
     assert len(result) > 0
-    # Must always contain the source marker
     assert "SOURCE: lattes_url" in result
 
 
 @pytest.mark.network
 @pytest.mark.asyncio
 async def test_fetch_lattes_url_fallback_message_on_captcha():
-    """
-    If CAPTCHA/SSL blocks the request, the result must contain a
-    clear fallback message pointing to alternatives.
-    """
+    """Se CAPTCHA/SSL bloquear, deve haver mensagem clara de fallback."""
     result = await fetch_lattes_url(LATTES_URL)
-    # Either we got real content OR a clear fallback message
     has_content = len(result.splitlines()) > 5
-    has_fallback = "PDF" in result or "Playwright" in result or "CAPTCHA" in result or "não acessível" in result
+    has_fallback = "Playwright" in result or "CAPTCHA" in result or "não acessível" in result
     assert has_content or has_fallback, f"Resultado inesperado: {result[:200]}"
+
+
+# ── Playwright: clique no reCAPTCHA ───────────────────────────────────────────
+
+@pytest.mark.network
+@pytest.mark.slow
+@pytest.mark.asyncio
+async def test_fetch_lattes_playwright_bypasses_captcha():
+    """Acessa o perfil real via Playwright com stealth + clique no reCAPTCHA.
+
+    O extrator clica no checkbox do reCAPTCHA v2. O Google pode aprovar
+    automaticamente se o score de confiança da sessão for alto o suficiente
+    (fingerprint limpo, comportamento humano simulado via stealth).
+
+    - Se aprovado: verifica que o resultado contém dados reais do Lattes.
+    - Se challenge visual bloquear: skip (não é possível resolver sem serviço
+      externo de CAPTCHA).
+    """
+    result = await fetch_lattes_url_playwright(LATTES_URL)
+
+    assert isinstance(result, str), "Deve retornar str, não exceção"
+    assert len(result) > 0, "Resultado não pode ser vazio"
+
+    if _is_captcha_blocked(result):
+        pytest.skip(
+            "reCAPTCHA v2 não aprovado automaticamente — "
+            "challenge visual bloqueou o acesso headless.\n"
+            f"Retorno: {result[:300]}"
+        )
+
+    # ── Verificações de conteúdo real ──────────────────────────────────────
+    assert "SOURCE: lattes_url" in result
+    assert "TYPE: playwright" in result
+
+    # O perfil deve conter pelo menos uma dessas marcas de currículo Lattes
+    lattes_markers = [
+        "Produção",          # Produção Bibliográfica / Produção Técnica
+        "Formação",          # Formação Acadêmica
+        "Orientações",       # Orientações e Supervisões
+        "Atuação",           # Atuação Profissional
+        "pesquisa",          # Linhas de pesquisa / projetos
+    ]
+    found = [m for m in lattes_markers if m.lower() in result.lower()]
+    assert found, (
+        f"Nenhuma seção Lattes encontrada no conteúdo.\n"
+        f"Marcadores esperados: {lattes_markers}\n"
+        f"Primeiras 500 chars: {result[:500]}"
+    )

@@ -90,26 +90,20 @@ async def fetch_dblp(dblp_url: str) -> str:
 
 
 async def _fetch_by_pid(pid: str) -> str:
-    """Fetch publications using the /pid/{pid}.json endpoint."""
-    json_url = f"https://dblp.org/pid/{pid}.json"
+    """Fetch publications via BibTeX export endpoint (primary for person profiles).
+
+    Note: dblp.org/pid/{pid}.json returns 404 for person profiles — it only
+    works for search results. BibTeX export is the correct endpoint for profiles.
+    """
     bib_url = f"https://dblp.org/pid/{pid}.bib"
 
-    async def _attempt_json():
-        async with httpx.AsyncClient(timeout=_TIMEOUT, headers=_HEADERS, follow_redirects=True) as client:
-            resp = await client.get(json_url)
-            resp.raise_for_status()
-            return _format_dblp_json(resp.json())
-
-    result = await with_retries(_attempt_json, source=f"dblp_json:{pid}")
-    if result:
-        return result
-
-    # Fallback: BibTeX
     async def _attempt_bib():
         async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
             resp = await client.get(bib_url)
             resp.raise_for_status()
             bibtex_text = resp.text
+        if not bibtex_text.strip():
+            raise ValueError(f"DBLP BibTeX vazio para PID {pid}")
         from app.extractors.bibtex import parse_bibtex
         parsed = parse_bibtex(bibtex_text)
         return f"SOURCE: dblp\nTYPE: dblp_bibtex\nPID: {pid}\n\n{parsed}"
