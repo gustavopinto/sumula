@@ -73,8 +73,13 @@ async def submit(
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="E-mail inválido")
 
-    # Validate files count
+    # Validate at least one source provided
     valid_files = [f for f in files if f.filename]
+    urls = [lattes_url, orcid_url, dblp_url, scholar_url, wos_url, site_url]
+    if not valid_files and not any(u and u.strip() for u in urls) and not (bibtex and bibtex.strip()) and not (free_text and free_text.strip()):
+        raise HTTPException(status_code=400, detail="Forneça ao menos uma fonte: arquivo, URL, BibTeX ou texto livre.")
+
+    # Validate files count
     if len(valid_files) > settings.max_files:
         raise HTTPException(
             status_code=400,
