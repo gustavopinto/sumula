@@ -56,17 +56,33 @@ async def process_job(ctx: dict, job_id: str) -> str:
                 from app.models import Job
                 from sqlalchemy import select
 
+                friendly_message = _friendly_error(exc)
+
                 result = await session.execute(select(Job).where(Job.id == job_id))
                 job = result.scalar_one_or_none()
                 if job:
                     job.status = JobStatus.ERROR
                     job.error_code = type(exc).__name__
-                    job.error_message = str(exc)[:2000]
+                    job.error_message = friendly_message
                     await session.commit()
-                await add_event(session, job_id, "ERROR", f"Erro: {exc}")
+                await add_event(session, job_id, "ERROR", f"Erro: {friendly_message}")
             except Exception as inner:
                 logger.error("Failed to record error for job %s: %s", job_id, inner)
             raise
+
+
+def _friendly_error(exc: Exception) -> str:
+    """Return a user-friendly error message for known exception types."""
+    try:
+        from openai import AuthenticationError
+        if isinstance(exc, AuthenticationError):
+            return (
+                "Chave da OpenAI inválida ou não configurada. "
+                "Adicione uma chave válida em OPENAI_API_KEY no arquivo .env e reinicie o servidor."
+            )
+    except ImportError:
+        pass
+    return str(exc)[:2000]
 
 
 async def on_startup(ctx: dict) -> None:

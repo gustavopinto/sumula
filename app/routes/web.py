@@ -61,9 +61,17 @@ import re as _re
 _URL_RE = _re.compile(r'(https?://[^\s]+)')
 
 def _fmtmsg(text: str) -> str:
-    """Bold (**text**) + linkify URLs in event messages."""
+    """Bold (**text**) + markdown links ([label](url)) + linkify bare URLs in event messages."""
+    # Convert "**Buscando LABEL:** URL" → "**Buscando [LABEL](URL)**" to hide bare URL
+    text = _re.sub(
+        r'\*\*Buscando ([^:*]+):\*\*\s*(https?://[^\s\[]+)',
+        lambda m: f'**Buscando [{m.group(1)}...]({m.group(2).rstrip()})**',
+        text,
+    )
     text = _re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
-    text = _URL_RE.sub(r'<a href="\1" target="_blank" rel="noopener">\1</a>', text)
+    text = _re.sub(r'\[([^\]]+)\]\((https?://[^\)]+)\)', r'<a href="\2" target="_blank" rel="noopener">\1</a>', text)
+    # linkify remaining bare URLs (not already inside href)
+    text = _re.sub(r'(?<!href=")(https?://[^\s<"]+)', r'<a href="\1" target="_blank" rel="noopener">\1</a>', text)
     return text
 
 templates.env.filters["fmtmsg"] = _fmtmsg
@@ -376,6 +384,195 @@ async def sumula_send_email(
     except Exception as exc:
         logger.error("Erro ao enviar e-mail para %s: %s", job.email, exc)
         return await _render_sumula(request, job_id, session, email_error=f"Erro ao enviar: {exc}")
+
+
+@router.get("/status/{job_id}/dblp", response_class=HTMLResponse)
+async def dblp_view(request: Request, job_id: str, session: AsyncSession = Depends(get_db)):
+    result = await session.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+
+    import json as _j
+    manifest = _j.loads(job.input_manifest_json or "{}")
+    source_url = (manifest.get("urls") or {}).get("dblp_url") or ""
+
+    works = []
+    error = None
+
+    if source_url:
+        try:
+            from app.extractors.dblp import fetch_dblp
+            raw = await fetch_dblp(source_url)
+            # Each entry separated by blank lines; format: [TYPE] key\n  field: val
+            for block in raw.split("\n\n"):
+                lines = block.strip().splitlines()
+                if not lines or not lines[0].startswith("["):
+                    continue
+                header = lines[0]  # e.g. [ARTICLE] key
+                fields = {}
+                for ln in lines[1:]:
+                    if ":" in ln:
+                        k, _, v = ln.strip().partition(":")
+                        fields[k.strip()] = v.strip()
+                raw_type = header.split("]")[0].lstrip("[")
+                pub_type = {"INPROCEEDINGS": "conference-paper", "ARTICLE": "journal-article"}.get(raw_type.upper(), raw_type.lower())
+                journal = fields.get("journal") or fields.get("booktitle") or fields.get("publisher") or ""
+                if journal.strip().lower() == "corr":
+                    continue
+                works.append({
+                    "title":   fields.get("title", ""),
+                    "type":    pub_type,
+                    "journal": journal,
+                    "date":    fields.get("year", ""),
+                    "doi":     fields.get("doi", ""),
+                    "authors": fields.get("author", ""),
+                })
+        except Exception as exc:
+            error = str(exc)
+    else:
+        error = "Nenhuma URL DBLP informada para este job."
+
+    return templates.TemplateResponse("publications.html", {
+        "request": request,
+        "job_id": job_id,
+        "source": "DBLP",
+        "source_url": source_url,
+        "works": works,
+        "error": error,
+    })
+
+
+@router.get("/status/{job_id}/gscholar", response_class=HTMLResponse)
+async def gscholar_view(request: Request, job_id: str, session: AsyncSession = Depends(get_db)):
+    result = await session.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+
+    import json as _j
+    manifest = _j.loads(job.input_manifest_json or "{}")
+    source_url = (manifest.get("urls") or {}).get("scholar_url") or ""
+
+    name = None
+    indicators = {}
+    co_authors = []
+    works = []
+    error = None
+
+    if source_url:
+        try:
+            from app.extractors.scholar import fetch_scholar
+            raw = await fetch_scholar(source_url)
+
+            if "[SCHOLAR:PERFIL]" in raw:
+                perfil_block = raw.split("[SCHOLAR:PERFIL]")[1].split("\n\n")[0]
+                for ln in perfil_block.splitlines():
+                    if ln.startswith("Nome:"):
+                        name = ln.removeprefix("Nome:").strip()
+
+            if "[SCHOLAR:INDICADORES]" in raw:
+                ind_block = raw.split("[SCHOLAR:INDICADORES]")[1].split("\n\n")[0]
+                for ln in ind_block.splitlines():
+                    if ":" in ln:
+                        k, _, v = ln.partition(":")
+                        indicators[k.strip()] = v.strip()
+
+            if "[SCHOLAR:COAUTORES]" in raw:
+                ca_block = raw.split("[SCHOLAR:COAUTORES]")[1].split("\n\n")[0].strip()
+                for line in ca_block.splitlines():
+                    line = line.lstrip("- ").strip()
+                    if not line:
+                        continue
+                    parts = [p.strip() for p in line.split("|")]
+                    co_authors.append({
+                        "name":        parts[0] if len(parts) > 0 else "",
+                        "affiliation": parts[1] if len(parts) > 1 else "",
+                    })
+
+            if "[SCHOLAR:PUBLICACOES]" in raw:
+                pub_block = raw.split("[SCHOLAR:PUBLICACOES]")[1].split("\n\n")[0].strip()
+                for line in pub_block.splitlines():
+                    line = line.lstrip("- ").strip()
+                    if not line or line.startswith("("):
+                        continue
+                    parts = [p.strip() for p in line.split("|")]
+                    works.append({
+                        "title":     parts[0] if len(parts) > 0 else "",
+                        "journal":   parts[1] if len(parts) > 1 else "",
+                        "date":      parts[2] if len(parts) > 2 else "",
+                        "citations": parts[3].replace("citações:", "").strip() if len(parts) > 3 else "",
+                    })
+        except Exception as exc:
+            error = str(exc)
+    else:
+        error = "Nenhuma URL Google Scholar informada para este job."
+
+    return templates.TemplateResponse("publications.html", {
+        "request": request,
+        "job_id": job_id,
+        "source": "Google Scholar",
+        "source_url": source_url,
+        "name": name,
+        "indicators": indicators,
+        "co_authors": co_authors,
+        "works": works,
+        "error": error,
+    })
+
+
+@router.get("/status/{job_id}/orcid", response_class=HTMLResponse)
+async def orcid_view(request: Request, job_id: str, session: AsyncSession = Depends(get_db)):
+    result = await session.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+
+    import json as _json2
+    manifest = _json2.loads(job.input_manifest_json or "{}")
+    orcid_url = (manifest.get("urls") or {}).get("orcid_url") or ""
+
+    name = None
+    works = []
+    error = None
+
+    if orcid_url:
+        try:
+            from app.extractors.orcid import fetch_orcid
+            raw = await fetch_orcid(orcid_url)
+
+            if "[ORCID:NOME]" in raw:
+                nome_block = raw.split("[ORCID:NOME]")[1].split("\n\n")[0].strip()
+                name = nome_block.splitlines()[0].strip()
+
+            if "[ORCID:PRODUCAO]" in raw:
+                prod_block = raw.split("[ORCID:PRODUCAO]")[1].split("\n\n")[0].strip()
+                for line in prod_block.splitlines():
+                    line = line.lstrip("- ").strip()
+                    if not line:
+                        continue
+                    parts = [p.strip() for p in line.split("|")]
+                    works.append({
+                        "title":   parts[0] if len(parts) > 0 else "",
+                        "type":    parts[1] if len(parts) > 1 else "",
+                        "journal": parts[2] if len(parts) > 2 else "",
+                        "date":    parts[3] if len(parts) > 3 else "",
+                        "doi":     parts[4].replace("doi:", "") if len(parts) > 4 else "",
+                    })
+        except Exception as exc:
+            error = str(exc)
+    else:
+        error = "Nenhuma URL ORCID informada para este job."
+
+    return templates.TemplateResponse("publications.html", {
+        "request": request,
+        "job_id": job_id,
+        "source": "ORCID",
+        "source_url": orcid_url,
+        "name": name,
+        "works": works,
+        "error": error,
+    })
 
 
 @router.get("/status/{job_id}", response_class=HTMLResponse)

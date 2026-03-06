@@ -99,3 +99,31 @@ async def test_fetch_scholar_invalid_url_graceful():
     result = await fetch_scholar("https://scholar.google.com/scholar?q=test")
     assert isinstance(result, str)
     assert "inválida" in result or "user ID" in result
+
+
+# ── Unit: scholarly library direct usage ───────────────────────────────────────
+
+@pytest.mark.network
+@pytest.mark.slow
+@pytest.mark.asyncio
+async def test_serpapi_scholar_author_basics():
+    """Test Google Scholar via SerpAPI — fetch full profile and validate output."""
+    from app.config import settings
+
+    if not settings.serpapi_api_key:
+        pytest.skip("SERPAPI_API_KEY não configurada")
+
+    result = await fetch_scholar(SCHOLAR_URL)
+
+    assert isinstance(result, str)
+    assert "SOURCE: scholar" in result
+    assert "[SCHOLAR:PERFIL]" in result, f"Perfil não encontrado:\n{result[:300]}"
+    assert "[SCHOLAR:INDICADORES]" in result
+    assert "[SCHOLAR:PUBLICACOES]" in result
+    assert "h-index" in result
+    assert "Citações totais" in result
+
+    # Extrai e imprime resumo
+    for line in result.splitlines():
+        if any(k in line for k in ("Nome:", "Afiliação:", "Citações totais:", "h-index:", "i10-index:", "PUBLICACOES")):
+            print(line)

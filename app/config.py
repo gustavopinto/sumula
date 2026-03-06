@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     # Web of Science Starter API (optional — public scraper used if absent)
     wos_api_key: str = ""
 
+    # SerpAPI (Google Scholar)
+    serpapi_api_key: str = ""
+
     # Email (MailerSend SMTP)
     smtp_host: str = "smtp.mailersend.net"
     smtp_port: int = 587

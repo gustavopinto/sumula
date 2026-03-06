@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}{{ source }} — FAPESP{% endblock %}
+
+{% block content %}
+<p class="section-title">Referências {{ source }}</p>
+
+{% if error %}
+<div class="alert alert-error"><strong>Erro:</strong> {{ error }}</div>
+{% endif %}
+
+{% if name %}
+<p style="font-size:1rem;font-weight:700;margin-bottom:0.25rem;">{{ name }}</p>
+{% endif %}
+
+{% if indicators %}
+<div style="display:flex;gap:1.5rem;margin-bottom:0.75rem;font-size:0.85rem;color:#555;">
+  {% for k, v in indicators.items() %}
+  <span><strong>{{ k }}:</strong> {{ v }}</span>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if source_url %}
+<p style="font-size:0.85rem;color:#666;margin-bottom:1rem;">
+  {{ works | length }} trabalho(s) encontrado(s) &mdash;
+  <a href="{{ source_url }}" target="_blank" rel="noopener">{{ source_url }}</a>
+</p>
+{% endif %}
+
+{% if co_authors %}
+<p class="section-title">Co-autores</p>
+<div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:1.5rem;">
+  {% for c in co_authors %}
+  <span style="background:#f0f4fb;border:1px solid #c8d8f0;border-radius:16px;padding:0.2rem 0.7rem;font-size:0.82rem;">
+    <strong>{{ c.name }}</strong>{% if c.affiliation %} · {{ c.affiliation }}{% endif %}
+  </span>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if works %}
+<table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+  <thead>
+    <tr style="background:#e8f0fe;">
+      <th style="padding:0.5rem;text-align:left;border-bottom:2px solid #0057a8;">#</th>
+      <th style="padding:0.5rem;text-align:left;border-bottom:2px solid #0057a8;">Título</th>
+      {% if works[0].type is defined %}<th style="padding:0.5rem;text-align:left;border-bottom:2px solid #0057a8;">Tipo</th>{% endif %}
+      <th style="padding:0.5rem;text-align:left;border-bottom:2px solid #0057a8;">Periódico / Evento</th>
+      <th style="padding:0.5rem;text-align:left;border-bottom:2px solid #0057a8;">Ano</th>
+      {% if works[0].doi is defined %}<th style="padding:0.5rem;text-align:left;border-bottom:2px solid #0057a8;">DOI</th>{% endif %}
+      {% if works[0].citations is defined %}<th style="padding:0.5rem;text-align:left;border-bottom:2px solid #0057a8;">Citações</th>{% endif %}
+    </tr>
+  </thead>
+  <tbody>
+  {% for w in works %}
+    <tr style="{% if loop.index is odd %}background:#f9f9f9;{% endif %}border-bottom:1px solid #eee;">
+      <td style="padding:0.4rem 0.5rem;color:#999;">{{ loop.index }}</td>
+      <td style="padding:0.4rem 0.5rem;font-weight:600;">{{ w.title }}</td>
+      {% if w.type is defined %}<td style="padding:0.4rem 0.5rem;color:#555;">{{ w.type }}</td>{% endif %}
+      <td style="padding:0.4rem 0.5rem;color:#555;">{{ w.journal or "—" }}</td>
+      <td style="padding:0.4rem 0.5rem;white-space:nowrap;">{{ w.date or "—" }}</td>
+      {% if w.doi is defined %}
+      <td style="padding:0.4rem 0.5rem;">
+        {% if w.doi %}
+        <a href="https://doi.org/{{ w.doi }}" target="_blank" rel="noopener"
+          style="font-size:0.8rem;color:#0057a8;">{{ w.doi }}</a>
+        {% else %}—{% endif %}
+      </td>
+      {% endif %}
+      {% if w.citations is defined %}
+      <td style="padding:0.4rem 0.5rem;text-align:right;">{{ w.citations }}</td>
+      {% endif %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% elif not error %}
+<p style="color:#999;font-size:0.9rem;">Nenhum trabalho encontrado.</p>
+{% endif %}
+
+<div style="margin-top:1.5rem;font-size:0.85rem;color:#666;">
+  <a href="/status/{{ job_id }}">&larr; Voltar ao status</a>
+</div>
+{% endblock %}

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}ORCID — FAPESP{% endblock %}
+
+{% block content %}
+<p class="section-title">Referências ORCID</p>
+
+{% if error %}
+<div class="alert alert-error"><strong>Erro:</strong> {{ error }}</div>
+{% endif %}
+
+{% if name %}
+<p style="font-size:1rem;font-weight:700;margin-bottom:0.25rem;">{{ name }}</p>
+<p style="font-size:0.85rem;color:#666;margin-bottom:1rem;">
+  {{ works | length }} trabalho(s) encontrado(s) &mdash;
+  <a href="{{ orcid_url }}" target="_blank" rel="noopener">{{ orcid_url }}</a>
+</p>
+{% endif %}
+
+{% if works %}
+<table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+  <thead>
+    <tr style="background:#e8f0fe;">
+      <th style="padding:0.5rem;text-align:left;border-bottom:2px solid #0057a8;">#</th>
+      <th style="padding:0.5rem;text-align:left;border-bottom:2px solid #0057a8;">Título</th>
+      <th style="padding:0.5rem;text-align:left;border-bottom:2px solid #0057a8;">Tipo</th>
+      <th style="padding:0.5rem;text-align:left;border-bottom:2px solid #0057a8;">Periódico</th>
+      <th style="padding:0.5rem;text-align:left;border-bottom:2px solid #0057a8;">Data</th>
+      <th style="padding:0.5rem;text-align:left;border-bottom:2px solid #0057a8;">DOI</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for w in works %}
+    <tr style="{% if loop.index is odd %}background:#f9f9f9;{% endif %}border-bottom:1px solid #eee;">
+      <td style="padding:0.4rem 0.5rem;color:#999;">{{ loop.index }}</td>
+      <td style="padding:0.4rem 0.5rem;font-weight:600;">{{ w.title }}</td>
+      <td style="padding:0.4rem 0.5rem;color:#555;">{{ w.type }}</td>
+      <td style="padding:0.4rem 0.5rem;color:#555;">{{ w.journal or "—" }}</td>
+      <td style="padding:0.4rem 0.5rem;white-space:nowrap;">{{ w.date or "—" }}</td>
+      <td style="padding:0.4rem 0.5rem;">
+        {% if w.doi %}
+        <a href="https://doi.org/{{ w.doi }}" target="_blank" rel="noopener"
+          style="font-size:0.8rem;color:#0057a8;">{{ w.doi }}</a>
+        {% else %}—{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% elif not error %}
+<p style="color:#999;font-size:0.9rem;">Nenhum trabalho encontrado.</p>
+{% endif %}
+
+<div style="margin-top:1.5rem;font-size:0.85rem;color:#666;">
+  <a href="/status/{{ job_id }}">&larr; Voltar ao status</a>
+</div>
+{% endblock %}

@@ -93,7 +93,12 @@ async def run(job_id: str, session: AsyncSession) -> None:
         if not url:
             continue
         try:
-            await add_event(session, job_id, "EXTRACTING", f"**Buscando {label}:** {url}")
+            _view_paths = {"orcid_url": "orcid", "dblp_url": "dblp", "scholar_url": "gscholar"}
+            if field in _view_paths:
+                view_icon = f" [🔍 ver itens](http://localhost:8000/status/{job_id}/{_view_paths[field]})"
+            else:
+                view_icon = ""
+            await add_event(session, job_id, "EXTRACTING", f"**Buscando [{label}]({url})**{view_icon}")
             text = await extractor_fn(url)
 
             if text.strip():

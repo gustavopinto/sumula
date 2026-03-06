@@ -69,6 +69,16 @@ def _format_dblp_json(data: dict) -> str:
     return "\n".join(parts)
 
 
+def _filter_corr(bibtex_text: str) -> str:
+    """Remove BibTeX entries where journal is CoRR (arXiv preprints)."""
+    entries = re.split(r'(?=@)', bibtex_text)
+    filtered = [
+        e for e in entries
+        if not re.search(r'journal\s*=\s*[{"]?\s*CoRR\s*[}"]?', e, re.IGNORECASE)
+    ]
+    return "".join(filtered)
+
+
 async def fetch_dblp(dblp_url: str) -> str:
     """Fetch DBLP profile: tries JSON API first, then BibTeX. 3 attempts each."""
     pid = _extract_pid(dblp_url)
@@ -104,6 +114,7 @@ async def _fetch_by_pid(pid: str) -> str:
             bibtex_text = resp.text
         if not bibtex_text.strip():
             raise ValueError(f"DBLP BibTeX vazio para PID {pid}")
+        bibtex_text = _filter_corr(bibtex_text)
         from app.extractors.bibtex import parse_bibtex
         parsed = parse_bibtex(bibtex_text)
         return f"SOURCE: dblp\nTYPE: dblp_bibtex\nPID: {pid}\n\n{parsed}"

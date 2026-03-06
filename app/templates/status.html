@@ -41,7 +41,7 @@
 <div class="alert alert-error">
   <strong>Erro no processamento.</strong>
   {% if job.error_code %}<br>Código: <code>{{ job.error_code }}</code>{% endif %}
-  {% if job.error_message %}<br>{{ job.error_message }}{% endif %}
+  {% if job.error_message %}<br><strong>Erro:</strong> {{ job.error_message }}{% endif %}
 </div>
 {% else %}
 <div class="alert alert-info">Processamento em andamento…</div>
@@ -89,8 +89,11 @@
 
 <script>
 function fmtmsg(text) {
+  // Convert "**Buscando LABEL:** URL" → "**Buscando [LABEL](URL)**"
+  text = text.replace(/\*\*Buscando ([^:*]+):\*\*\s*(https?:\/\/[^\s\[]+)/g, (_, label, url) => `**Buscando [${label}...](${url.trimEnd()})**`);
   text = text.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
-  text = text.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  text = text.replace(/(?<!href=")(https?:\/\/[^\s<"]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
   return text;
 }
 
