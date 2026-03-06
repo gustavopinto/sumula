@@ -10,8 +10,9 @@ from typing import Optional
 import magic
 from arq import create_pool
 from arq.connections import RedisSettings
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
+from urllib.parse import quote
 from fastapi.templating import Jinja2Templates
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -31,26 +32,29 @@ templates = Jinja2Templates(directory="app/templates")
 
 _ALLOWED_MIME_TYPES = {
     "application/pdf",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.ms-excel",
     "text/plain",
     "text/markdown",
     "text/x-markdown",
 }
 
-_ALLOWED_EXTENSIONS = {".pdf", ".xlsx", ".xls", ".txt", ".md"}
+_ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md"}
 
 
 @router.get("/", response_class=HTMLResponse)
-async def index(request: Request):
+async def index(request: Request, error: Optional[str] = Query(default=None)):
     return templates.TemplateResponse(
         "index.html",
         {
             "request": request,
             "max_files": settings.max_files,
             "max_mb": settings.max_upload_mb,
+            "error": error,
         },
     )
+
+
+def _form_error(error: str):
+    return RedirectResponse(url=f"/?error={quote(error)}", status_code=303)
 
 
 @router.post("/submit")
@@ -69,22 +73,22 @@ async def submit(
     free_text: Optional[str] = Form(default=None),
     session: AsyncSession = Depends(get_db),
 ):
+    def form_error(msg: str):
+        return _form_error(msg)
+
     # Validate email
     if not email or "@" not in email:
-        raise HTTPException(status_code=400, detail="E-mail inválido")
+        return form_error("E-mail inválido.")
 
     # Validate at least one source provided
     valid_files = [f for f in files if f.filename]
     urls = [lattes_url, orcid_url, dblp_url, scholar_url, wos_url, site_url]
     if not valid_files and not any(u and u.strip() for u in urls) and not (bibtex and bibtex.strip()) and not (free_text and free_text.strip()):
-        raise HTTPException(status_code=400, detail="Forneça ao menos uma fonte: arquivo, URL, BibTeX ou texto livre.")
+        return form_error("Forneça ao menos uma fonte: arquivo, URL, BibTeX ou texto livre.")
 
     # Validate files count
     if len(valid_files) > settings.max_files:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Máximo de {settings.max_files} arquivos por submissão"
-        )
+        return form_error("Envie apenas 1 currículo por submissão.")
 
     # Create job
     job_id = str(uuid.uuid4())
@@ -98,18 +102,12 @@ async def submit(
         ext = Path(filename).suffix.lower()
 
         if ext not in _ALLOWED_EXTENSIONS:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Extensão não suportada: {ext}. Use: {', '.join(_ALLOWED_EXTENSIONS)}"
-            )
+            return form_error(f"Extensão não suportada: {ext}. Use: {', '.join(_ALLOWED_EXTENSIONS)}")
 
         content = await upload.read()
 
         if len(content) > settings.max_upload_bytes:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Arquivo {filename} excede o limite de {settings.max_upload_mb} MB"
-            )
+            return form_error(f"Arquivo {filename} excede o limite de {settings.max_upload_mb} MB.")
 
         # Validate MIME type
         try:
@@ -118,10 +116,7 @@ async def submit(
             detected_mime = upload.content_type or "application/octet-stream"
 
         if detected_mime not in _ALLOWED_MIME_TYPES and not detected_mime.startswith("text/"):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Tipo de arquivo não permitido: {detected_mime}"
-            )
+            return form_error(f"Tipo de arquivo não permitido: {detected_mime}")
 
         sha256 = hashlib.sha256(content).hexdigest()
         source_id = f"{sha256[:8]}_{filename}"

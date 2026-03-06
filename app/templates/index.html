@@ -3,6 +3,9 @@
 {% block title %}Gerar Súmula — FAPESP{% endblock %}
 
 {% block content %}
+{% if error %}
+<p class="alert alert-error">{{ error }}</p>
+{% endif %}
 <p class="alert alert-info">
   Preencha os campos abaixo com suas fontes acadêmicas. O processamento é assíncrono —
   você receberá a Súmula em Markdown por e-mail.
@@ -18,13 +21,13 @@
     <p class="hint">O arquivo sumula.md será enviado para este endereço.</p>
   </div>
 
-  <p class="section-title">Arquivos</p>
+  <p class="section-title">Currículo</p>
 
   <div class="field">
-    <label for="files">Upload de arquivos <span class="optional">(opcional)</span></label>
-    <input type="file" id="files" name="files" multiple
-           accept=".pdf,.xlsx,.xls,.txt,.md">
-    <p class="hint">Tipos aceitos: PDF, XLSX, XLS, TXT, MD. Máximo {{ max_files }} arquivos de até {{ max_mb }} MB cada.</p>
+    <label for="files">Upload do currículo <span class="optional">(opcional)</span></label>
+    <input type="file" id="files" name="files"
+           accept=".pdf,.txt,.md">
+    <p class="hint">Tipos aceitos: PDF, TXT, MD. Máximo 1 currículo de até {{ max_mb }} MB.</p>
   </div>
 
   <p class="section-title">Links</p>
@@ -32,6 +35,7 @@
   <div class="field">
     <label for="lattes_url">Currículo Lattes <span class="optional">(opcional)</span></label>
     <input type="url" id="lattes_url" name="lattes_url" placeholder="https://lattes.cnpq.br/...">
+    <p class="hint">⚠️ Extração experimental — o acesso ao Lattes pode ser bloqueado pelo reCAPTCHA do CNPq.</p>
   </div>
 
   <div class="field">

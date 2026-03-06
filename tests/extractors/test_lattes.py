@@ -76,6 +76,12 @@ async def test_fetch_lattes_playwright_bypasses_captcha():
             f"Retorno: {result[:300]}"
         )
 
+    # Imprime o nome da pessoa (primeira linha não-vazia após os headers)
+    header_end = result.find("\n\n")
+    body = result[header_end + 2:] if header_end != -1 else result
+    nome = next((ln.strip() for ln in body.splitlines() if ln.strip()), "")
+    print(f"\nNome: {nome}")
+
     # ── Verificações de conteúdo real ──────────────────────────────────────
     assert "SOURCE: lattes_url" in result
     assert "TYPE: playwright" in result

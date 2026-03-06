@@ -45,8 +45,8 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://sumula:sumula@localhost:5432/sumula"
 
     # Upload limits
-    max_upload_mb: int = 20
-    max_files: int = 10
+    max_upload_mb: int = 10
+    max_files: int = 1
 
     # Working directory
     workdir_path: str = "/tmp/sumula_workdir"
