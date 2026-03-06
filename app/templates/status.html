@@ -76,7 +76,7 @@
   <li>
     <span class="ev-step">{{ event.step }}</span>
     <span class="ev-time">{{ delta | elapsed }}</span>
-    <span class="ev-msg">{{ event.message }}</span>
+    <span class="ev-msg">{{ event.message | fmtmsg | safe }}</span>
   </li>
 {% endfor %}
 {% endif %}
@@ -88,6 +88,12 @@
 </div>
 
 <script>
+function fmtmsg(text) {
+  text = text.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  text = text.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  return text;
+}
+
 (function () {
   const STEPS = ['RECEIVED','EXTRACTING','CURATING','ENRICHING','GENERATING','VALIDATING','DONE'];
   const JOB_ID = {{ job.id | tojson }};
@@ -134,7 +140,7 @@
       li.innerHTML =
         `<span class="ev-step">${ev.step}</span>` +
         `<span class="ev-time">${ev.elapsed}</span>` +
-        `<span class="ev-msg">${ev.message}</span>`;
+        `<span class="ev-msg">${fmtmsg(ev.message)}</span>`;
       listEl.appendChild(li);
     });
   }

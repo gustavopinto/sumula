@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.config import settings
 from app.models import JobStatus
-from app.pipeline import enrich, extract, generate, validate
+from app.pipeline import enrich, extract, generate, validate, verify_author
 from app.pipeline import curate as curate_step
 from app.pipeline._helpers import add_event, set_status
 
@@ -23,6 +23,9 @@ async def process_job(ctx: dict, job_id: str) -> str:
             # Step 1: Extract
             await set_status(session, job_id, JobStatus.EXTRACTING)
             await extract.run(job_id, session)
+
+            # Step 1b: Verify author consistency (temporarily disabled)
+            # await verify_author.run(job_id, session)
 
             # Step 2: Curate
             await set_status(session, job_id, JobStatus.CURATING)

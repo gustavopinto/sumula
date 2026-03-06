@@ -92,7 +92,7 @@ async def run(job_id: str, session: AsyncSession) -> None:
         if not url:
             continue
         try:
-            await add_event(session, job_id, "EXTRACTING", f"Buscando {label}: {url}")
+            await add_event(session, job_id, "EXTRACTING", f"**Buscando {label}:** {url}")
             text = await extractor_fn(url)
 
             if text.strip():

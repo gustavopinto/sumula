@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models import ArtifactKind
 from app.pipeline._helpers import add_event, get_artifact_path, get_job, save_artifact
+from app.pipeline.prompts import VALIDATE_REPAIR_SYSTEM
 
 logger = logging.getLogger(__name__)
 
@@ -75,11 +76,6 @@ def _extract_section_content(markdown: str, start: int) -> str:
     return rest
 
 
-_REPAIR_SYSTEM = """Você é um especialista em Súmulas Curriculares FAPESP.
-Corrija o Markdown abaixo para que satisfaça os requisitos listados.
-Retorne apenas o Markdown corrigido, sem explicações.
-Regras: não invente dados; use "NADA A DECLARAR" onde não houver informação;
-mantenha todas as 6 seções na ordem correta e os subitens 1.1, 6.a, 6.b, 6.c."""
 
 
 async def run(job_id: str, session: AsyncSession) -> None:
@@ -121,7 +117,7 @@ async def run(job_id: str, session: AsyncSession) -> None:
         model=settings.openai_model,
         max_tokens=settings.openai_max_tokens,
         messages=[
-            {"role": "system", "content": _REPAIR_SYSTEM},
+            {"role": "system", "content": VALIDATE_REPAIR_SYSTEM},
             {"role": "user", "content": repair_prompt},
         ],
         temperature=0.1,

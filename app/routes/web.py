@@ -57,6 +57,17 @@ def _elapsed(seconds):
 
 templates.env.filters["elapsed"] = _elapsed
 
+import re as _re
+_URL_RE = _re.compile(r'(https?://[^\s]+)')
+
+def _fmtmsg(text: str) -> str:
+    """Bold (**text**) + linkify URLs in event messages."""
+    text = _re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
+    text = _URL_RE.sub(r'<a href="\1" target="_blank" rel="noopener">\1</a>', text)
+    return text
+
+templates.env.filters["fmtmsg"] = _fmtmsg
+
 _ALLOWED_MIME_TYPES = {
     "application/pdf",
     "text/plain",
