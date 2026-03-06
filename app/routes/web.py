@@ -77,6 +77,15 @@ _ALLOWED_MIME_TYPES = {
 
 _ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md"}
 
+_LATTES_XML_MIME_TYPES = {
+    "application/xml",
+    "text/xml",
+    "application/zip",
+    "application/x-zip-compressed",
+    "application/octet-stream",
+}
+_LATTES_XML_EXTENSIONS = {".xml", ".zip"}
+
 
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request, error: Optional[str] = Query(default=None)):
@@ -101,7 +110,9 @@ async def submit(
     request: Request,
     email: str = Form(...),
     files: list[UploadFile] = File(default=[]),
+    lattes_source_type: Optional[str] = Form(default="html"),
     lattes_url: Optional[str] = Form(default=None),
+    lattes_file: Optional[UploadFile] = File(default=None),
     orcid_url: Optional[str] = Form(default=None),
     dblp_url: Optional[str] = Form(default=None),
     scholar_url: Optional[str] = Form(default=None),
@@ -120,8 +131,12 @@ async def submit(
 
     # Validate at least one source provided
     valid_files = [f for f in files if f.filename]
-    urls = [lattes_url, orcid_url, dblp_url, scholar_url, wos_url, site_url]
-    if not valid_files and not any(u and u.strip() for u in urls) and not (bibtex and bibtex.strip()) and not (free_text and free_text.strip()):
+    has_lattes_xml = lattes_source_type == "xml" and lattes_file and lattes_file.filename
+    urls = [
+        lattes_url if lattes_source_type == "html" else None,
+        orcid_url, dblp_url, scholar_url, wos_url, site_url,
+    ]
+    if not valid_files and not has_lattes_xml and not any(u and u.strip() for u in urls) and not (bibtex and bibtex.strip()) and not (free_text and free_text.strip()):
         return form_error("Forneça ao menos uma fonte: arquivo, URL, BibTeX ou texto livre.")
 
     # Validate files count
@@ -170,17 +185,42 @@ async def submit(
             "source_id": source_id,
         })
 
+    # Save Lattes XML/ZIP file if provided
+    lattes_xml_path = None
+    if has_lattes_xml:
+        lf_filename = lattes_file.filename or "lattes.xml"
+        lf_ext = Path(lf_filename).suffix.lower()
+        if lf_ext not in _LATTES_XML_EXTENSIONS:
+            return form_error(f"Lattes: extensão não suportada: {lf_ext}. Use .xml ou .zip.")
+
+        lf_content = await lattes_file.read()
+        if len(lf_content) > settings.max_upload_bytes:
+            return form_error(f"Arquivo Lattes excede o limite de {settings.max_upload_mb} MB.")
+
+        try:
+            detected_mime = magic.from_buffer(lf_content, mime=True)
+        except Exception:
+            detected_mime = lattes_file.content_type or "application/octet-stream"
+
+        if detected_mime not in _LATTES_XML_MIME_TYPES and not detected_mime.startswith("text/"):
+            return form_error(f"Lattes: tipo de arquivo não permitido: {detected_mime}")
+
+        dest_path = job_dir / lf_filename
+        dest_path.write_bytes(lf_content)
+        lattes_xml_path = str(dest_path)
+
     # Build input manifest
     manifest = {
         "files": file_manifests,
         "urls": {
-            "lattes_url": lattes_url or None,
+            "lattes_url": (lattes_url or None) if lattes_source_type == "html" else None,
             "orcid_url": orcid_url or None,
             "dblp_url": dblp_url or None,
             "scholar_url": scholar_url or None,
             "wos_url": wos_url or None,
             "site_url": site_url or None,
         },
+        "lattes_xml_path": lattes_xml_path,
         "bibtex": bibtex or None,
         "free_text": free_text or None,
         "locale": "pt-BR",

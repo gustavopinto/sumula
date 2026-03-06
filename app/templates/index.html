@@ -31,10 +31,35 @@
   <p class="section-title">Links</p>
 
   <div class="field">
-    <label for="lattes_url">Currículo Lattes <span class="optional">(opcional)</span></label>
-    <input type="url" id="lattes_url" name="lattes_url" placeholder="https://lattes.cnpq.br/...">
-    <p class="hint">⚠️ Extração experimental — o acesso ao Lattes pode ser bloqueado pelo reCAPTCHA do CNPq.</p>
+    <label>Currículo Lattes <span class="optional">(opcional)</span></label>
+    <div style="display:flex;gap:1.5rem;margin-bottom:.5rem;">
+      <label style="font-weight:normal;display:flex;align-items:center;gap:.4rem;">
+        <input type="radio" name="lattes_source_type" id="lattes_type_html" value="html" checked
+               onchange="toggleLattes(this.value)"> Link HTML
+      </label>
+      <label style="font-weight:normal;display:flex;align-items:center;gap:.4rem;">
+        <input type="radio" name="lattes_source_type" id="lattes_type_xml" value="xml"
+               onchange="toggleLattes(this.value)"> Arquivo XML / ZIP
+      </label>
+    </div>
+    <div id="lattes_html_section">
+      <input type="url" id="lattes_url" name="lattes_url" placeholder="https://lattes.cnpq.br/...">
+      <p class="hint">⚠️ Extração experimental — o acesso ao Lattes pode ser bloqueado pelo reCAPTCHA do CNPq.</p>
+    </div>
+    <div id="lattes_xml_section" style="display:none;">
+      <input type="file" id="lattes_file" name="lattes_file" accept=".xml,.zip">
+      <p class="hint">Exporte o currículo em XML no site do Lattes e faça upload do arquivo .xml ou .zip.</p>
+    </div>
   </div>
+
+  <script>
+    function toggleLattes(val) {
+      document.getElementById('lattes_html_section').style.display = val === 'html' ? '' : 'none';
+      document.getElementById('lattes_xml_section').style.display = val === 'xml' ? '' : 'none';
+      var urlInput = document.getElementById('lattes_url');
+      if (val === 'xml') urlInput.removeAttribute('required');
+    }
+  </script>
 
   <div class="field">
     <label for="orcid_url">ORCID <span class="optional">(opcional)</span></label>

@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.extractors.bibtex import parse_bibtex
 from app.extractors.dblp import fetch_dblp
 from app.extractors.lattes import fetch_lattes_url
+from app.extractors.lattes_xml import extract_lattes_xml
 from app.extractors.orcid import fetch_orcid
 from app.extractors.pdf import extract_pdf
 from app.extractors.scholar import fetch_scholar
@@ -106,6 +107,22 @@ async def run(job_id: str, session: AsyncSession) -> None:
         except Exception as exc:
             logger.exception("Erro ao extrair %s (%s)", label, url)
             await add_event(session, job_id, "EXTRACTING", f"Erro ao extrair {label}: {exc}")
+
+    # ── Lattes XML ─────────────────────────────────────────────────────────────
+    lattes_xml_path = manifest.get("lattes_xml_path")
+    if lattes_xml_path:
+        lx_path = Path(lattes_xml_path)
+        try:
+            await add_event(session, job_id, "EXTRACTING", f"**Processando Lattes XML:** {lx_path.name}")
+            content = lx_path.read_bytes()
+            text = extract_lattes_xml(content, lx_path.name)
+            out_path = base_dir / "extracted" / "lattes_xml.txt"
+            await save_artifact(session, job_id, ArtifactKind.extracted_txt, out_path, text)
+            lines = len(text.splitlines())
+            await add_event(session, job_id, "EXTRACTING", f"Lattes XML extraído ({lines} linhas)")
+        except Exception as exc:
+            logger.exception("Erro ao extrair Lattes XML %s", lattes_xml_path)
+            await add_event(session, job_id, "EXTRACTING", f"Erro ao extrair Lattes XML: {exc}")
 
     # ── BibTeX ─────────────────────────────────────────────────────────────────
     bibtex = manifest.get("bibtex", "") or ""
