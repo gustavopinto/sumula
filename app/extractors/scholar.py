@@ -161,16 +161,17 @@ async def fetch_scholar(scholar_url: str) -> str:
 
     loop = asyncio.get_event_loop()
 
-    # ── 1. SerpAPI ──────────────────────────────────────────────────────────────
+    # ── 1. SerpAPI (3 tentativas) ───────────────────────────────────────────────
     if settings.serpapi_api_key:
-        try:
-            result = await loop.run_in_executor(
+        async def _serpapi_attempt():
+            return await loop.run_in_executor(
                 None, _sync_fetch_serpapi, user_id, settings.serpapi_api_key
             )
-            if result:
-                return result
-        except Exception as exc:
-            logger.warning("SerpAPI falhou (%s), tentando scholarly como fallback", exc)
+
+        result = await with_retries(_serpapi_attempt, source=f"scholar_serpapi:{user_id}")
+        if result:
+            return result
+        logger.warning("SerpAPI falhou após 3 tentativas, tentando scholarly como fallback")
 
     # ── 2. scholarly fallback ───────────────────────────────────────────────────
     logger.info("Scholar: usando scholarly como fallback para user_id=%s", user_id)
