@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Súmula Curricular — FAPESP{% endblock %}
+
+{% block content %}
+<style>
+  .sumula-body h1, .sumula-body h2, .sumula-body h3 {
+    color: #0057a8;
+    margin: 1.25rem 0 0.5rem;
+  }
+  .sumula-body h1 { font-size: 1.3rem; border-bottom: 2px solid #e0e8f5; padding-bottom: 0.3rem; }
+  .sumula-body h2 { font-size: 1.1rem; border-bottom: 1px solid #e0e8f5; padding-bottom: 0.2rem; }
+  .sumula-body h3 { font-size: 1rem; }
+  .sumula-body p  { margin: 0.5rem 0; line-height: 1.6; font-size: 0.92rem; }
+  .sumula-body ul, .sumula-body ol { margin: 0.5rem 0 0.5rem 1.5rem; font-size: 0.92rem; }
+  .sumula-body li { margin-bottom: 0.25rem; }
+  .sumula-body table {
+    width: 100%; border-collapse: collapse; font-size: 0.88rem; margin: 0.75rem 0;
+  }
+  .sumula-body th, .sumula-body td {
+    border: 1px solid #ddd; padding: 0.4rem 0.6rem; text-align: left;
+  }
+  .sumula-body th { background: #e8f0fe; font-weight: 700; }
+  .sumula-body code { background: #f4f4f4; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.85rem; }
+  .sumula-body pre { background: #f4f4f4; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: 0.85rem; }
+  .sumula-actions { display: flex; gap: 1rem; margin-bottom: 1.25rem; }
+</style>
+
+<div class="sumula-body">
+  {{ content | safe }}
+</div>
+
+{% if email_sent %}
+<div class="alert alert-success" style="margin-top:1.5rem;">Súmula enviada para <strong>{{ email_sent }}</strong>.</div>
+{% elif email_error %}
+<div class="alert alert-error" style="margin-top:1.5rem;">{{ email_error }}</div>
+{% endif %}
+
+<div style="margin-top:2rem; padding-top:1rem; border-top:1px solid #e0e8f5;">
+  <p class="section-title" style="margin-top:0;">Enviar por e-mail</p>
+  {% if job_email %}
+  <p style="font-size:0.9rem; color:#555; margin-bottom:0.75rem;">Será enviado para: <strong>{{ job_email }}</strong></p>
+  <form method="POST" action="/status/{{ job_id }}/send-email">
+    <button type="submit" style="background:#0057a8;color:#fff;border:none;border-radius:4px;padding:0.75rem 2rem;font-size:1rem;font-weight:600;cursor:pointer;"
+      onmouseover="this.style.background='#00419e'" onmouseout="this.style.background='#0057a8'">
+      Enviar Súmula
+    </button>
+  </form>
+  {% else %}
+  <p style="font-size:0.9rem; color:#999;">Nenhum e-mail cadastrado para este job.</p>
+  {% endif %}
+</div>
+
+<div style="margin-top:1.5rem; font-size:0.85rem; color:#666;">
+  <a href="/status/{{ job_id }}">&larr; Voltar ao status</a>
+</div>
+{% endblock %}

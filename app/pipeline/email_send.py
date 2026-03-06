@@ -96,6 +96,11 @@ async def run(job_id: str, session: AsyncSession) -> None:
         f"O arquivo sumula.md está em anexo."
     )
 
+    if settings.sumula_env == "local":
+        logger.info("Env=local — envio de e-mail suprimido para %s (job %s)", job.email, job_id)
+        await add_event(session, job_id, "SENDING_EMAIL", f"[local] E-mail suprimido — sumula.md gerado em {md_path}")
+        return
+
     import asyncio
     await asyncio.get_event_loop().run_in_executor(
         None,

@@ -15,7 +15,6 @@ class JobStatus(str, enum.Enum):
     ENRICHING = "ENRICHING"
     GENERATING = "GENERATING"
     VALIDATING = "VALIDATING"
-    SENDING_EMAIL = "SENDING_EMAIL"
     DONE = "DONE"
     ERROR = "ERROR"
 
@@ -31,7 +30,7 @@ class Job(Base):
     __tablename__ = "jobs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[JobStatus] = mapped_column(
         Enum(JobStatus, name="jobstatus"), nullable=False, default=JobStatus.RECEIVED
     )

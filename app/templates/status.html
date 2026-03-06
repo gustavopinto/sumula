@@ -13,47 +13,45 @@
   <tr style="background:#f9f9f9;">
     <td style="padding:0.4rem 0.5rem; font-weight:700;">Status</td>
     <td style="padding:0.4rem 0.5rem;">
-      <span class="badge badge-{{ job.status.value.lower() }}">{{ job.status.value }}</span>
+      <span id="job-status" class="badge badge-{{ job.status.value.lower() }}">{{ job.status.value }}</span>
     </td>
   </tr>
   <tr>
     <td style="padding:0.4rem 0.5rem; font-weight:700;">Criado em</td>
-    <td style="padding:0.4rem 0.5rem;">{{ job.created_at.strftime('%d/%m/%Y %H:%M:%S') if job.created_at else '—' }}</td>
+    <td style="padding:0.4rem 0.5rem;">{{ job.created_at | localdt }}</td>
   </tr>
   <tr style="background:#f9f9f9;">
     <td style="padding:0.4rem 0.5rem; font-weight:700;">Atualizado</td>
-    <td style="padding:0.4rem 0.5rem;">{{ job.updated_at.strftime('%d/%m/%Y %H:%M:%S') if job.updated_at else '—' }}</td>
+    <td style="padding:0.4rem 0.5rem;">{{ job.updated_at | localdt }}</td>
   </tr>
 </table>
 
+<div id="status-banner">
 {% if job.status.value == 'DONE' %}
-<div class="alert alert-success">
-  Processamento concluído! Verifique seu e-mail — a Súmula Curricular foi enviada como anexo <code>sumula.md</code>.
+<div class="alert alert-success">Processamento concluído!</div>
+<div style="margin-bottom:1.5rem;">
+  <a href="/status/{{ job.id }}/sumula" style="text-decoration:none;">
+    <button type="button" style="background:#0057a8;color:#fff;border:none;border-radius:4px;padding:0.75rem 2rem;font-size:1rem;font-weight:600;cursor:pointer;transition:background 0.2s;"
+      onmouseover="this.style.background='#00419e'" onmouseout="this.style.background='#0057a8'">
+      Ver Súmula
+    </button>
+  </a>
 </div>
 {% elif job.status.value == 'ERROR' %}
 <div class="alert alert-error">
   <strong>Erro no processamento.</strong>
   {% if job.error_code %}<br>Código: <code>{{ job.error_code }}</code>{% endif %}
   {% if job.error_message %}<br>{{ job.error_message }}{% endif %}
-  <br><br>
-  <form method="POST" action="/api/jobs/{{ job.id }}/retry">
-    <button type="submit" style="background:#c00;">Tentar novamente</button>
-  </form>
-</div>
-{% elif job.status.value == 'RECEIVED' %}
-<div class="alert alert-info">
-  Job recebido e aguardando processamento na fila. Atualize a página para ver o progresso.
 </div>
 {% else %}
-<div class="alert alert-info">
-  Processamento em andamento… Atualize a página para ver atualizações.
-</div>
+<div class="alert alert-info">Processamento em andamento…</div>
 {% endif %}
+</div>
 
 <p class="section-title">Etapas</p>
 
-{% set steps = ['RECEIVED','EXTRACTING','CURATING','ENRICHING','GENERATING','VALIDATING','SENDING_EMAIL','DONE'] %}
-<div style="display:flex; gap:0.35rem; flex-wrap:wrap; margin-bottom:1.5rem;">
+{% set steps = ['RECEIVED','EXTRACTING','CURATING','ENRICHING','GENERATING','VALIDATING','DONE'] %}
+<div id="steps-bar" style="display:flex; gap:0.35rem; flex-wrap:wrap; margin-bottom:1.5rem;">
 {% for step in steps %}
   {% set current = job.status.value %}
   {% set step_idx = steps.index(step) %}
@@ -70,21 +68,93 @@
 
 <p class="section-title">Registro de Eventos</p>
 
+<ul id="events-list" class="events-list">
 {% if events %}
-<ul class="events-list">
-  {% for event in events %}
+{% set start = events[0].created_at %}
+{% for event in events %}
+{% set delta = ((event.created_at - start).total_seconds()) if event.created_at and start else 0 %}
   <li>
     <span class="ev-step">{{ event.step }}</span>
-    <span class="ev-time">{{ event.created_at.strftime('%H:%M:%S') if event.created_at else '' }}</span>
+    <span class="ev-time">{{ delta | elapsed }}</span>
     <span class="ev-msg">{{ event.message }}</span>
   </li>
-  {% endfor %}
-</ul>
-{% else %}
-<p style="color:#999; font-size:0.9rem;">Nenhum evento registrado ainda.</p>
+{% endfor %}
 {% endif %}
+</ul>
+<p id="events-empty" style="color:#999; font-size:0.9rem; {% if events %}display:none{% endif %}">Nenhum evento registrado ainda.</p>
 
 <div style="margin-top:1.5rem; font-size:0.85rem; color:#666;">
   <a href="/">&larr; Nova Súmula</a>
 </div>
+
+<script>
+(function () {
+  const STEPS = ['RECEIVED','EXTRACTING','CURATING','ENRICHING','GENERATING','VALIDATING','DONE'];
+  const JOB_ID = {{ job.id | tojson }};
+  const TERMINAL = new Set(['DONE', 'ERROR']);
+
+  const statusEl   = document.getElementById('job-status');
+  const bannerEl   = document.getElementById('status-banner');
+  const stepsEl    = document.getElementById('steps-bar');
+  const listEl     = document.getElementById('events-list');
+  const emptyEl    = document.getElementById('events-empty');
+
+  function renderSteps(status) {
+    const currentIdx = STEPS.indexOf(status);
+    stepsEl.innerHTML = STEPS.map((step, i) => {
+      if (i < currentIdx)
+        return `<span class="badge badge-done">✓ ${step}</span>`;
+      if (i === currentIdx)
+        return `<span class="badge badge-${status.toLowerCase()}">► ${step}</span>`;
+      return `<span class="badge" style="background:#eee;color:#999;">${step}</span>`;
+    }).join('');
+  }
+
+  function renderBanner(status) {
+    if (status === 'DONE') {
+      bannerEl.innerHTML =
+        `<div class="alert alert-success">Processamento concluído!</div>` +
+        `<div style="margin-bottom:1.5rem;">` +
+        `<a href="/status/${JOB_ID}/sumula" style="text-decoration:none;">` +
+        `<button type="button" style="background:#0057a8;color:#fff;border:none;border-radius:4px;padding:0.75rem 2rem;font-size:1rem;font-weight:600;cursor:pointer;" ` +
+        `onmouseover="this.style.background='#00419e'" onmouseout="this.style.background='#0057a8'">Ver Súmula</button></a></div>`;
+    } else if (status === 'ERROR') {
+      bannerEl.innerHTML =
+        `<div class="alert alert-error"><strong>Erro no processamento.</strong></div>`;
+    } else {
+      bannerEl.innerHTML = `<div class="alert alert-info">Processamento em andamento…</div>`;
+    }
+  }
+
+  function appendEvents(newEvents) {
+    if (!newEvents.length) return;
+    emptyEl.style.display = 'none';
+    newEvents.forEach(ev => {
+      const li = document.createElement('li');
+      li.innerHTML =
+        `<span class="ev-step">${ev.step}</span>` +
+        `<span class="ev-time">${ev.elapsed}</span>` +
+        `<span class="ev-msg">${ev.message}</span>`;
+      listEl.appendChild(li);
+    });
+  }
+
+  {% if job.status.value not in ('DONE', 'ERROR') %}
+  const es = new EventSource(`/status/${JOB_ID}/stream`);
+  es.onmessage = function (e) {
+    const data = JSON.parse(e.data);
+    if (data.error) { es.close(); return; }
+
+    statusEl.className = `badge badge-${data.status.toLowerCase()}`;
+    statusEl.textContent = data.status;
+    renderSteps(data.status);
+    renderBanner(data.status);
+    appendEvents(data.new_events);
+
+    if (TERMINAL.has(data.status)) es.close();
+  };
+  es.onerror = function () { es.close(); };
+  {% endif %}
+})();
+</script>
 {% endblock %}

@@ -74,26 +74,10 @@ ok "Migrations aplicadas"
 WORKDIR="${WORKDIR_PATH:-/tmp/sumula_workdir}"
 mkdir -p "$WORKDIR"
 
-# ── 6. iniciar web server ─────────────────────────────────────────────────────
+# ── 6. iniciar worker ─────────────────────────────────────────────────────────
 LOG_DIR="$SCRIPT_DIR/logs"
 mkdir -p "$LOG_DIR"
 
-info "Iniciando web server na porta 8000..."
-nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 \
-    > "$LOG_DIR/web.log" 2>&1 &
-WEB_PID=$!
-echo $WEB_PID > "$LOG_DIR/web.pid"
-
-# aguardar web pronto
-for i in $(seq 1 15); do
-    curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/ 2>/dev/null | grep -q "200" && break
-    sleep 1
-done
-curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/ 2>/dev/null | grep -q "200" \
-    || die "Web server não respondeu. Veja logs/web.log"
-ok "Web server rodando (PID $WEB_PID) → http://localhost:8000"
-
-# ── 7. iniciar worker ─────────────────────────────────────────────────────────
 info "Iniciando worker ARQ..."
 nohup python -m arq app.worker.WorkerSettings \
     > "$LOG_DIR/worker.log" 2>&1 &
@@ -102,17 +86,21 @@ echo $WORKER_PID > "$LOG_DIR/worker.pid"
 sleep 2
 
 if kill -0 "$WORKER_PID" 2>/dev/null; then
-    ok "Worker rodando (PID $WORKER_PID)"
+    ok "Worker rodando (PID $WORKER_PID) — logs: logs/worker.log"
 else
     die "Worker falhou ao iniciar. Veja logs/worker.log"
 fi
 
-# ── 8. resumo ─────────────────────────────────────────────────────────────────
+# ── 7. resumo + web server em foreground ──────────────────────────────────────
 echo ""
 echo -e "${GREEN}═══════════════════════════════════════════${NC}"
 echo -e "${GREEN}  Sumula Curricular FAPESP — rodando       ${NC}"
 echo -e "${GREEN}═══════════════════════════════════════════${NC}"
 echo -e "  Web:    ${CYAN}http://localhost:8000${NC}"
-echo -e "  Logs:   ${CYAN}logs/web.log${NC} · ${CYAN}logs/worker.log${NC}"
-echo -e "  Parar:  ${YELLOW}./stop.sh${NC}"
+echo -e "  Worker: ${CYAN}logs/worker.log${NC}"
+echo -e "  Parar:  ${YELLOW}Ctrl+C${NC}"
 echo -e "${GREEN}═══════════════════════════════════════════${NC}"
+echo ""
+
+info "Iniciando web server na porta 8000..."
+exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000

@@ -10,8 +10,11 @@ from typing import Optional
 import magic
 from arq import create_pool
 from arq.connections import RedisSettings
+import asyncio
+import json as _json
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from urllib.parse import quote
 from fastapi.templating import Jinja2Templates
 from slowapi import Limiter
@@ -20,15 +23,39 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from zoneinfo import ZoneInfo
+
 from app.config import settings
 from app.database import get_db
 from app.models import Artifact, ArtifactKind, Event, Job, JobStatus
+from app.pipeline._helpers import get_artifact_path
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
 templates = Jinja2Templates(directory="app/templates")
+
+_TZ = ZoneInfo("America/Sao_Paulo")
+
+def _localdt(dt, fmt="%d/%m/%Y %H:%M:%S"):
+    if dt is None:
+        return "—"
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+    return dt.astimezone(_TZ).strftime(fmt)
+
+templates.env.filters["localdt"] = _localdt
+
+def _elapsed(seconds):
+    seconds = int(seconds)
+    m, s = divmod(seconds, 60)
+    h, m = divmod(m, 60)
+    if h:
+        return f"{h:02d}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
+
+templates.env.filters["elapsed"] = _elapsed
 
 _ALLOWED_MIME_TYPES = {
     "application/pdf",
@@ -148,40 +175,156 @@ async def submit(
         "locale": "pt-BR",
     }
 
-    # Save raw file artifacts to DB
-    job = Job(
-        id=job_id,
-        email=email,
-        status=JobStatus.RECEIVED,
-        input_manifest_json=json.dumps(manifest, ensure_ascii=False),
-    )
-    session.add(job)
-
-    for fm in file_manifests:
-        artifact = Artifact(
-            id=str(uuid.uuid4()),
-            job_id=job_id,
-            kind=ArtifactKind.raw_file,
-            path=fm["path"],
-            sha256=fm["sha256"],
-            size_bytes=fm["size_bytes"],
-        )
-        session.add(artifact)
-
-    await session.commit()
-
-    # Enqueue job in ARQ
     try:
-        redis_settings = RedisSettings.from_dsn(settings.redis_url)
-        pool = await create_pool(redis_settings)
-        await pool.enqueue_job("process_job", job_id)
-        await pool.aclose()
-    except Exception as exc:
-        logger.error("Failed to enqueue job %s: %s", job_id, exc)
-        # Still redirect — worker can be checked manually
+        # Save raw file artifacts to DB
+        job = Job(
+            id=job_id,
+            email=email,
+            status=JobStatus.RECEIVED,
+            input_manifest_json=json.dumps(manifest, ensure_ascii=False),
+        )
+        session.add(job)
 
-    logger.info("Job %s submitted by %s with %d files", job_id, email, len(file_manifests))
+        for fm in file_manifests:
+            artifact = Artifact(
+                id=str(uuid.uuid4()),
+                job_id=job_id,
+                kind=ArtifactKind.raw_file,
+                path=fm["path"],
+                sha256=fm["sha256"],
+                size_bytes=fm["size_bytes"],
+            )
+            session.add(artifact)
+
+        await session.commit()
+
+        # Enqueue job in ARQ
+        try:
+            redis_settings = RedisSettings.from_dsn(settings.redis_url)
+            pool = await create_pool(redis_settings)
+            await pool.enqueue_job("process_job", job_id)
+            await pool.aclose()
+        except Exception as exc:
+            logger.error("Failed to enqueue job %s: %s", job_id, exc)
+            # Still redirect — worker can be checked manually
+
+    except Exception as exc:
+        logger.exception("Erro ao criar job %s: %s", job_id, exc)
+        return form_error(f"Erro interno ao registrar o job: {exc}")
+
+    logger.info("Job %s submitted with %d files", job_id, len(file_manifests))
     return RedirectResponse(url=f"/status/{job_id}", status_code=303)
+
+
+@router.get("/status/{job_id}/stream")
+async def status_stream(job_id: str, session: AsyncSession = Depends(get_db)):
+    """SSE stream: pushes job status + events until job is terminal."""
+    TERMINAL = {"DONE", "ERROR"}
+
+    async def generate():
+        seen_event_ids: set[str] = set()
+        start_ts = None
+
+        while True:
+            session.expire_all()
+            result = await session.execute(
+                select(Job).where(Job.id == job_id).options(selectinload(Job.events))
+            )
+            job = result.scalar_one_or_none()
+            if job is None:
+                yield f"data: {_json.dumps({'error': 'job not found'})}\n\n"
+                return
+
+            events = sorted(job.events, key=lambda e: e.created_at)
+            if events and start_ts is None:
+                start_ts = events[0].created_at
+
+            new_events = []
+            for ev in events:
+                if ev.id not in seen_event_ids:
+                    seen_event_ids.add(ev.id)
+                    delta = int((ev.created_at - start_ts).total_seconds()) if start_ts else 0
+                    m, s = divmod(delta, 60)
+                    h, m2 = divmod(m, 60)
+                    elapsed = f"{h:02d}:{m2:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+                    new_events.append({
+                        "step": ev.step,
+                        "elapsed": elapsed,
+                        "message": ev.message,
+                    })
+
+            payload = {
+                "status": job.status.value,
+                "new_events": new_events,
+                "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+            }
+            yield f"data: {_json.dumps(payload)}\n\n"
+
+            if job.status.value in TERMINAL:
+                return
+
+            await asyncio.sleep(2)
+
+    return StreamingResponse(generate(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })
+
+
+async def _render_sumula(request: Request, job_id: str, session: AsyncSession, **extra):
+    import markdown as md_lib
+    md_path = await get_artifact_path(session, job_id, ArtifactKind.output_md)
+    if md_path is None or not md_path.exists():
+        raise HTTPException(status_code=404, detail="Súmula não encontrada")
+    result = await session.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    content_md = md_path.read_text(encoding="utf-8")
+    content_html = md_lib.markdown(content_md, extensions=["tables", "fenced_code", "nl2br"])
+    return templates.TemplateResponse(
+        "sumula.html",
+        {"request": request, "job_id": job_id, "content": content_html, "job_email": job.email if job else None, **extra},
+    )
+
+
+@router.get("/status/{job_id}/sumula", response_class=HTMLResponse)
+async def sumula_view(request: Request, job_id: str, session: AsyncSession = Depends(get_db)):
+    return await _render_sumula(request, job_id, session)
+
+
+@router.post("/status/{job_id}/send-email", response_class=HTMLResponse)
+async def sumula_send_email(
+    request: Request,
+    job_id: str,
+    session: AsyncSession = Depends(get_db),
+):
+    from app.pipeline.email_send import _send_smtp
+    import asyncio as _asyncio
+
+    result = await session.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job or not job.email:
+        return await _render_sumula(request, job_id, session, email_error="E-mail não cadastrado para este job.")
+
+    md_path = await get_artifact_path(session, job_id, ArtifactKind.output_md)
+    if md_path is None or not md_path.exists():
+        return await _render_sumula(request, job_id, session, email_error="Súmula não encontrada.")
+
+    try:
+        await _asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: _send_smtp(
+                to=job.email,
+                subject="Súmula Curricular FAPESP",
+                body_text="Sua Súmula Curricular FAPESP está em anexo.",
+                body_html="<p>Sua Súmula Curricular FAPESP está em anexo.</p>",
+                attachment_path=md_path,
+                attachment_name="sumula.md",
+            ),
+        )
+        return await _render_sumula(request, job_id, session, email_sent=job.email)
+    except Exception as exc:
+        logger.error("Erro ao enviar e-mail para %s: %s", job.email, exc)
+        return await _render_sumula(request, job_id, session, email_error=f"Erro ao enviar: {exc}")
 
 
 @router.get("/status/{job_id}", response_class=HTMLResponse)

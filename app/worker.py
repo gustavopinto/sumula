@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.config import settings
 from app.models import JobStatus
-from app.pipeline import email_send, enrich, extract, generate, validate
+from app.pipeline import enrich, extract, generate, validate
 from app.pipeline import curate as curate_step
 from app.pipeline._helpers import add_event, set_status
 
@@ -39,10 +39,6 @@ async def process_job(ctx: dict, job_id: str) -> str:
             # Step 5: Validate
             await set_status(session, job_id, JobStatus.VALIDATING)
             await validate.run(job_id, session)
-
-            # Step 6: Send email
-            await set_status(session, job_id, JobStatus.SENDING_EMAIL)
-            await email_send.run(job_id, session)
 
             # Done
             await set_status(session, job_id, JobStatus.DONE)
