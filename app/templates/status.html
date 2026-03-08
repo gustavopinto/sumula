@@ -28,6 +28,7 @@
 
 <div id="status-banner">
 {% if job.status.value == 'DONE' %}
+{% if has_generating %}
 <div class="alert alert-success">Processamento concluído!</div>
 <div style="margin-bottom:1.5rem;">
   <a href="/status/{{ job.id }}/sumula" style="text-decoration:none;">
@@ -37,6 +38,9 @@
     </button>
   </a>
 </div>
+{% else %}
+<div class="alert alert-info">Processamento encerrado — nenhuma publicação encontrada para gerar a súmula.</div>
+{% endif %}
 {% elif job.status.value == 'ERROR' %}
 <div class="alert alert-error">
   <strong>Erro no processamento.</strong>
@@ -51,12 +55,16 @@
 <p class="section-title">Etapas</p>
 
 {% set steps = ['RECEIVED','EXTRACTING','CURATING','ENRICHING','GENERATING','VALIDATING','DONE'] %}
+{% set has_generating = events | selectattr('step', 'equalto', 'GENERATING') | list | length > 0 %}
+{% set skipped = (job.status.value == 'DONE' and not has_generating) %}
 <div id="steps-bar" style="display:flex; gap:0.35rem; flex-wrap:wrap; margin-bottom:1.5rem;">
 {% for step in steps %}
   {% set current = job.status.value %}
   {% set step_idx = steps.index(step) %}
   {% set current_idx = steps.index(current) if current in steps else 0 %}
-  {% if step_idx < current_idx %}
+  {% if skipped and step in ('GENERATING', 'VALIDATING') %}
+    <span class="badge" style="background:#eee;color:#999;">{{ step }}</span>
+  {% elif step_idx < current_idx %}
     <span class="badge badge-done">✓ {{ step }}</span>
   {% elif step_idx == current_idx %}
     <span class="badge badge-{{ current.lower() }}">► {{ step }}</span>
@@ -68,6 +76,11 @@
 
 <p class="section-title">Registro de Eventos</p>
 
+<div style="display:flex; gap:0.75rem; font-size:0.75rem; font-weight:700; color:#999; text-transform:uppercase; letter-spacing:0.04em; padding:0 0 0.25rem 0; border-bottom:1px solid #eee; margin-bottom:0.25rem;">
+  <span style="min-width:120px; flex-shrink:0;">Etapa</span>
+  <span style="min-width:80px; flex-shrink:0;">Duração</span>
+  <span>Descrição</span>
+</div>
 <ul id="events-list" class="events-list">
 {% if events %}
 {% set start = events[0].created_at %}
@@ -99,6 +112,7 @@ function fmtmsg(text) {
 
 (function () {
   const STEPS = ['RECEIVED','EXTRACTING','CURATING','ENRICHING','GENERATING','VALIDATING','DONE'];
+  const SKIPPED_WHEN_MISSING = ['GENERATING', 'VALIDATING'];
   const JOB_ID = {{ job.id | tojson }};
   const TERMINAL = new Set(['DONE', 'ERROR']);
 
@@ -108,9 +122,15 @@ function fmtmsg(text) {
   const listEl     = document.getElementById('events-list');
   const emptyEl    = document.getElementById('events-empty');
 
+  // Track whether GENERATING actually ran (based on received events).
+  let seenGenerating = {{ has_generating | tojson }};
+
   function renderSteps(status) {
     const currentIdx = STEPS.indexOf(status);
+    const skipped = new Set(status === 'DONE' && !seenGenerating ? SKIPPED_WHEN_MISSING : []);
     stepsEl.innerHTML = STEPS.map((step, i) => {
+      if (skipped.has(step))
+        return `<span class="badge" style="background:#eee;color:#999;">${step}</span>`;
       if (i < currentIdx)
         return `<span class="badge badge-done">✓ ${step}</span>`;
       if (i === currentIdx)
@@ -121,12 +141,17 @@ function fmtmsg(text) {
 
   function renderBanner(status) {
     if (status === 'DONE') {
-      bannerEl.innerHTML =
-        `<div class="alert alert-success">Processamento concluído!</div>` +
-        `<div style="margin-bottom:1.5rem;">` +
-        `<a href="/status/${JOB_ID}/sumula" style="text-decoration:none;">` +
-        `<button type="button" style="background:#0057a8;color:#fff;border:none;border-radius:4px;padding:0.75rem 2rem;font-size:1rem;font-weight:600;cursor:pointer;" ` +
-        `onmouseover="this.style.background='#00419e'" onmouseout="this.style.background='#0057a8'">Ver Súmula</button></a></div>`;
+      if (seenGenerating) {
+        bannerEl.innerHTML =
+          `<div class="alert alert-success">Processamento concluído!</div>` +
+          `<div style="margin-bottom:1.5rem;">` +
+          `<a href="/status/${JOB_ID}/sumula" style="text-decoration:none;">` +
+          `<button type="button" style="background:#0057a8;color:#fff;border:none;border-radius:4px;padding:0.75rem 2rem;font-size:1rem;font-weight:600;cursor:pointer;" ` +
+          `onmouseover="this.style.background='#00419e'" onmouseout="this.style.background='#0057a8'">Ver Súmula</button></a></div>`;
+      } else {
+        bannerEl.innerHTML =
+          `<div class="alert alert-info">Processamento encerrado — nenhuma publicação encontrada para gerar a súmula.</div>`;
+      }
     } else if (status === 'ERROR') {
       bannerEl.innerHTML =
         `<div class="alert alert-error"><strong>Erro no processamento.</strong></div>`;
@@ -139,6 +164,7 @@ function fmtmsg(text) {
     if (!newEvents.length) return;
     emptyEl.style.display = 'none';
     newEvents.forEach(ev => {
+      if (ev.step === 'GENERATING') seenGenerating = true;
       const li = document.createElement('li');
       li.innerHTML =
         `<span class="ev-step">${ev.step}</span>` +
