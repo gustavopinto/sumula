@@ -7,6 +7,7 @@ as a canonical public test account with rich data.
 import pytest
 
 from app.extractors.orcid import (
+    ORCID_NOT_FOUND_MARKER,
     _extract_orcid_id,
     _fmt_date,
     _get_doi,
@@ -104,10 +105,20 @@ async def test_fetch_orcid_has_works_section():
     assert "[ORCID:PRODUCAO]" in result
 
 
+# ── Network: 404 handling ──────────────────────────────────────────────────────
+
+# This ORCID URL does not exist and returns HTTP 404.
+ORCID_URL_404 = "https://orcid.org/0000-0001-7598-2791"
+
+
 @pytest.mark.network
 @pytest.mark.asyncio
-async def test_fetch_orcid_graceful_on_nonexistent():
-    """Non-existent ORCID must not raise — returns fallback string."""
-    result = await fetch_orcid("https://orcid.org/0000-0000-0000-0000")
+async def test_fetch_orcid_nonexistent_page_returns_not_found_marker():
+    """Página ORCID inexistente (HTTP 404) não deve lançar exceção e deve retornar
+    ORCID_NOT_FOUND_MARKER, indicando que não há registro."""
+    result = await fetch_orcid(ORCID_URL_404)
     assert isinstance(result, str)
-    assert "orcid" in result.lower()
+    assert "SOURCE: orcid" in result
+    assert ORCID_NOT_FOUND_MARKER in result, (
+        f"Esperado ORCID_NOT_FOUND_MARKER no resultado.\nObtido: {result[:300]}"
+    )

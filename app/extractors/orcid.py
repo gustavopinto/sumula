@@ -17,6 +17,12 @@ _ORCID_RE = re.compile(r"(\d{4}-\d{4}-\d{4}-\d{3}[\dX])")
 _TIMEOUT = 20
 _HEADERS = {"Accept": "application/json"}
 
+# Returned by fetch_orcid when the profile does not exist (HTTP 404).
+ORCID_NOT_FOUND_MARKER = "[ORCID: perfil não encontrado (404)]"
+
+# Internal sentinel to distinguish a confirmed 404 from a network failure.
+_NOT_FOUND = object()
+
 
 def _extract_orcid_id(url: str) -> str:
     m = _ORCID_RE.search(url)
@@ -139,9 +145,15 @@ async def fetch_orcid(orcid_url: str) -> str:
     async def _attempt():
         async with httpx.AsyncClient(timeout=_TIMEOUT, headers=_HEADERS, follow_redirects=True) as client:
             resp = await client.get(api_url)
+            if resp.status_code == 404:
+                # Profile does not exist — no point retrying.
+                return _NOT_FOUND
             resp.raise_for_status()
             data = resp.json()
         return _format_record(data)
 
     result = await with_retries(_attempt, source=f"orcid:{orcid_id}")
+    if result is _NOT_FOUND:
+        logger.info("ORCID %s retornou 404 — perfil não existe", orcid_id)
+        return f"SOURCE: orcid\nORCID: {orcid_id}\n{ORCID_NOT_FOUND_MARKER}"
     return result or f"SOURCE: orcid\nORCID: {orcid_id}\n[ORCID não acessível após 3 tentativas]"
