@@ -18,6 +18,14 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = 20
 _HEADERS = {"Accept": "application/json", "User-Agent": "SumulaBot/1.0"}
 
+# Returned by fetch_dblp when the profile page does not exist (HTTP 404).
+# Callers can check for this substring to detect "no record" vs. a real error.
+DBLP_NOT_FOUND_MARKER = "[DBLP: perfil não encontrado (404)]"
+
+# Internal sentinel used inside _fetch_by_pid to distinguish a confirmed 404
+# (should NOT be retried) from a network error that returns None after retries.
+_NOT_FOUND = object()
+
 # Matches: /pid/XX/XXXX or /pers/hd/x/Name or homepages/X/Name
 _PID_RE = re.compile(r"/pid/([^.?#]+)")
 _PERS_RE = re.compile(r"dblp\.(?:org|uni-trier\.de)/(?:pers/hd|homepages)/[^/]+/([^/?#]+)")
@@ -110,6 +118,10 @@ async def _fetch_by_pid(pid: str) -> str:
     async def _attempt_bib():
         async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
             resp = await client.get(bib_url)
+            if resp.status_code == 404:
+                # Page truly does not exist — no point retrying.
+                # Return sentinel so with_retries treats it as a success (no retries).
+                return _NOT_FOUND
             resp.raise_for_status()
             bibtex_text = resp.text
         if not bibtex_text.strip():
@@ -120,6 +132,9 @@ async def _fetch_by_pid(pid: str) -> str:
         return f"SOURCE: dblp\nTYPE: dblp_bibtex\nPID: {pid}\n\n{parsed}"
 
     result = await with_retries(_attempt_bib, source=f"dblp_bib:{pid}")
+    if result is _NOT_FOUND:
+        logger.info("DBLP pid=%s retornou 404 — perfil não existe", pid)
+        return f"SOURCE: dblp\nPID: {pid}\n{DBLP_NOT_FOUND_MARKER}"
     return result or f"SOURCE: dblp\nPID: {pid}\n[DBLP não acessível após 3 tentativas]"
 
 

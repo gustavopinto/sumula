@@ -11,6 +11,7 @@ Notes:
 import pytest
 
 from app.extractors.dblp import (
+    DBLP_NOT_FOUND_MARKER,
     _extract_pid,
     _person_name_from_url,
     fetch_dblp,
@@ -111,3 +112,22 @@ async def test_fetch_dblp_graceful_on_invalid_url():
     result = await fetch_dblp("https://dblp.org/search?q=naoexiste12345xyzabc")
     assert isinstance(result, str)
     assert "dblp" in result.lower()
+
+
+# ── Network: 404 handling ──────────────────────────────────────────────────────
+
+# This DBLP profile URL does not exist and consistently returns HTTP 404.
+DBLP_URL_404 = "https://dblp.org/pid/00/9999999999.html"
+
+
+@pytest.mark.network
+@pytest.mark.asyncio
+async def test_fetch_dblp_nonexistent_page_returns_not_found_marker():
+    """Página DBLP inexistente (HTTP 404) não deve lançar exceção e deve retornar
+    DBLP_NOT_FOUND_MARKER, indicando que não há registro."""
+    result = await fetch_dblp(DBLP_URL_404)
+    assert isinstance(result, str)
+    assert "SOURCE: dblp" in result
+    assert DBLP_NOT_FOUND_MARKER in result, (
+        f"Esperado DBLP_NOT_FOUND_MARKER no resultado.\nObtido: {result[:300]}"
+    )

@@ -19,7 +19,7 @@ from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.extractors.bibtex import parse_bibtex
-from app.extractors.dblp import fetch_dblp
+from app.extractors.dblp import DBLP_NOT_FOUND_MARKER, fetch_dblp
 from app.extractors.lattes import fetch_lattes_url
 from app.extractors.lattes_xml import extract_lattes_xml
 from app.extractors.orcid import fetch_orcid
@@ -98,16 +98,33 @@ async def run(job_id: str, session: AsyncSession) -> None:
                 view_icon = f" [🔍 ver itens](http://localhost:8000/status/{job_id}/{_view_paths[field]})"
             else:
                 view_icon = ""
-            await add_event(session, job_id, "EXTRACTING", f"**Buscando [{label}]({url})**{view_icon}")
-            text = await extractor_fn(url)
-
-            if text.strip():
-                out_path = base_dir / "extracted" / f"{field}.txt"
-                await save_artifact(session, job_id, ArtifactKind.extracted_txt, out_path, text)
-                lines = len(text.splitlines())
-                await add_event(session, job_id, "EXTRACTING", f"{label} extraído ({lines} linhas)")
+            if field == "dblp_url":
+                # Fetch first, emit ONE combined event so the result appears
+                # on the same line as "Buscando DBLP".
+                text = await extractor_fn(url)
+                if DBLP_NOT_FOUND_MARKER in text:
+                    # No records — omit "ver itens" link since there's nothing to show.
+                    await add_event(session, job_id, "EXTRACTING",
+                        f"**Buscando [DBLP]({url})** — sem registros (possível 404)")
+                elif text.strip():
+                    out_path = base_dir / "extracted" / f"{field}.txt"
+                    await save_artifact(session, job_id, ArtifactKind.extracted_txt, out_path, text)
+                    lines = len(text.splitlines())
+                    await add_event(session, job_id, "EXTRACTING",
+                        f"**Buscando [DBLP]({url})**{view_icon} — extraído ({lines} linhas)")
+                else:
+                    await add_event(session, job_id, "EXTRACTING",
+                        f"**Buscando [DBLP]({url})** — sem conteúdo retornado")
             else:
-                await add_event(session, job_id, "EXTRACTING", f"{label}: sem conteúdo retornado")
+                await add_event(session, job_id, "EXTRACTING", f"**Buscando [{label}]({url})**{view_icon}")
+                text = await extractor_fn(url)
+                if text.strip():
+                    out_path = base_dir / "extracted" / f"{field}.txt"
+                    await save_artifact(session, job_id, ArtifactKind.extracted_txt, out_path, text)
+                    lines = len(text.splitlines())
+                    await add_event(session, job_id, "EXTRACTING", f"{label} extraído ({lines} linhas)")
+                else:
+                    await add_event(session, job_id, "EXTRACTING", f"{label}: sem conteúdo retornado")
 
         except Exception as exc:
             logger.exception("Erro ao extrair %s (%s)", label, url)
