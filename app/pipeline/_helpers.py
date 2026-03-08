@@ -1,4 +1,8 @@
 """Shared helpers for pipeline steps."""
+
+
+class InsufficientDataError(Exception):
+    """Raised when the pipeline has no meaningful content to generate a sumula."""
 import hashlib
 import json
 import logging

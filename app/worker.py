@@ -9,7 +9,7 @@ from app.config import settings
 from app.models import JobStatus
 from app.pipeline import enrich, extract, generate, validate, verify_author
 from app.pipeline import curate as curate_step
-from app.pipeline._helpers import add_event, set_status
+from app.pipeline._helpers import InsufficientDataError, add_event, set_status
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,12 @@ async def process_job(ctx: dict, job_id: str) -> str:
             await set_status(session, job_id, JobStatus.DONE)
             await add_event(session, job_id, "DONE", "Processamento concluído com sucesso")
             logger.info("Job %s completed successfully", job_id)
+            return "done"
+
+        except InsufficientDataError as exc:
+            logger.info("Job %s encerrado por falta de dados: %s", job_id, exc)
+            await set_status(session, job_id, JobStatus.DONE)
+            await add_event(session, job_id, "DONE", "Processamento encerrado — nenhuma publicação encontrada para gerar a súmula")
             return "done"
 
         except Exception as exc:

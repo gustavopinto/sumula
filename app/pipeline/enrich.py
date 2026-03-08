@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ArtifactKind
 from app.pipeline._helpers import (
+    InsufficientDataError,
     add_event,
     get_artifact_path,
     get_job,
@@ -100,6 +101,10 @@ async def run(job_id: str, session: AsyncSession) -> None:
             f"Publicações consolidadas: {counts['artigos']} artigos, {counts['livros']} livros, "
             f"{counts['capitulos']} capítulos, {counts['outros']} outros"
         )
+        if counts["artigos"] == 0 and counts["livros"] == 0 and counts["capitulos"] == 0:
+            await add_event(session, job_id, "ENRICHING",
+                "Nenhuma publicação encontrada — geração de súmula encerrada")
+            raise InsufficientDataError("Nenhuma publicação encontrada após enriquecimento")
     else:
         await add_event(session, job_id, "ENRICHING", "Bloco de contribuições não encontrado")
 
