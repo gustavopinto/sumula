@@ -386,6 +386,38 @@ async def sumula_send_email(
         return await _render_sumula(request, job_id, session, email_error=f"Erro ao enviar: {exc}")
 
 
+@router.get("/status/{job_id}/webpage", response_class=HTMLResponse)
+async def webpage_view(request: Request, job_id: str, session: AsyncSession = Depends(get_db)):
+    result = await session.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+
+    import json as _j
+    manifest = _j.loads(job.input_manifest_json or "{}")
+    source_url = (manifest.get("urls") or {}).get("site_url") or ""
+
+    content = None
+    error = None
+
+    from app.config import settings as _settings
+    txt_path = Path(_settings.workdir_path) / job_id / "extracted" / "site_url.txt"
+    if txt_path.exists():
+        content = txt_path.read_text(encoding="utf-8")
+    elif source_url:
+        error = "Conteúdo ainda não extraído ou extração falhou."
+    else:
+        error = "Nenhuma URL de site pessoal informada para este job."
+
+    return templates.TemplateResponse("webpage.html", {
+        "request": request,
+        "job_id": job_id,
+        "source_url": source_url,
+        "content": content,
+        "error": error,
+    })
+
+
 @router.get("/status/{job_id}/dblp", response_class=HTMLResponse)
 async def dblp_view(request: Request, job_id: str, session: AsyncSession = Depends(get_db)):
     result = await session.execute(select(Job).where(Job.id == job_id))

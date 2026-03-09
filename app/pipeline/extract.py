@@ -93,17 +93,21 @@ async def run(job_id: str, session: AsyncSession) -> None:
         if not url:
             continue
         try:
-            _view_paths = {"orcid_url": "orcid", "dblp_url": "dblp", "scholar_url": "gscholar"}
+            _view_paths = {"orcid_url": "orcid", "dblp_url": "dblp", "scholar_url": "gscholar", "site_url": "webpage"}
             if field in _view_paths:
                 view_icon = f" [🔍 ver itens](http://localhost:8000/status/{job_id}/{_view_paths[field]})"
             else:
                 view_icon = ""
-            if field in ("dblp_url", "orcid_url"):
+            if field in ("dblp_url", "orcid_url", "site_url"):
                 # Fetch first, emit ONE combined event so the result appears
                 # on the same line as "Buscando X".
-                not_found_marker = DBLP_NOT_FOUND_MARKER if field == "dblp_url" else ORCID_NOT_FOUND_MARKER
+                not_found_markers = {
+                    "dblp_url": DBLP_NOT_FOUND_MARKER,
+                    "orcid_url": ORCID_NOT_FOUND_MARKER,
+                }
                 text = await extractor_fn(url)
-                if not_found_marker in text:
+                marker = not_found_markers.get(field)
+                if marker and marker in text:
                     # No records — omit "ver itens" link since there's nothing to show.
                     await add_event(session, job_id, "EXTRACTING",
                         f"**Buscando [{label}]({url})** — sem registros (possível 404)")

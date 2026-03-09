@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Site Pessoal — FAPESP{% endblock %}
+
+{% block content %}
+<p class="section-title">Conteúdo extraído — Site Pessoal</p>
+
+{% if source_url %}
+<p style="font-size:0.85rem;color:#666;margin-bottom:1rem;">
+  <a href="{{ source_url }}" target="_blank" rel="noopener">{{ source_url }}</a>
+</p>
+{% endif %}
+
+{% if error %}
+<div class="alert alert-error"><strong>Erro:</strong> {{ error }}</div>
+{% elif content %}
+<pre style="background:#f9f9f9;border:1px solid #eee;border-radius:4px;padding:1rem;font-size:0.82rem;line-height:1.6;white-space:pre-wrap;word-break:break-word;">{{ content }}</pre>
+{% else %}
+<p style="color:#999;font-size:0.9rem;">Nenhum conteúdo extraído.</p>
+{% endif %}
+
+<div style="margin-top:1.5rem;font-size:0.85rem;color:#666;">
+  <a href="/status/{{ job_id }}">&larr; Voltar ao status</a>
+</div>
+{% endblock %}

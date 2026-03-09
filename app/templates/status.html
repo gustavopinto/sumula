@@ -96,8 +96,16 @@
 </ul>
 <p id="events-empty" style="color:#999; font-size:0.9rem; {% if events %}display:none{% endif %}">Nenhum evento registrado ainda.</p>
 
-<div style="margin-top:1.5rem; font-size:0.85rem; color:#666;">
-  <a href="/">&larr; Nova Súmula</a>
+<div style="margin-top:1.5rem; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:1rem;">
+  <span style="font-size:0.85rem; color:#666;"><a href="/">&larr; Nova Súmula</a></span>
+  {% if job.status.value == 'DONE' and has_generating %}
+  <a href="/status/{{ job.id }}/sumula" style="text-decoration:none;">
+    <button type="button" style="background:#0057a8;color:#fff;border:none;border-radius:4px;padding:0.6rem 1.5rem;font-size:0.9rem;font-weight:600;cursor:pointer;"
+      onmouseover="this.style.background='#00419e'" onmouseout="this.style.background='#0057a8'">
+      Ver Súmula
+    </button>
+  </a>
+  {% endif %}
 </div>
 
 <script>
